@@ -21,9 +21,9 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({ orders: data });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Fetch Orders Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
 
@@ -62,7 +62,8 @@ export async function POST(req: NextRequest) {
         vat: vat || 0,
         status: status || 'pending',
         delivery_address: resolvedDeliveryAddress,
-        location
+        location,
+        items,
       }])
       .select()
       .single();
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
     if (orderError) throw orderError;
 
     // 2. Add Order Items
-    const orderItems = items.map((item: any) => ({
+    const orderItems = items.map((item: { food_id: number; quantity: number; price_at_time: number; options: unknown }) => ({
       order_id: orderData.id,
       food_id: item.food_id,
       quantity: item.quantity,
@@ -94,8 +95,8 @@ export async function POST(req: NextRequest) {
       order_id: orderData.id 
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Create Order Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
