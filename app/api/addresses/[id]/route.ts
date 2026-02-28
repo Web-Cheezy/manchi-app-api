@@ -11,21 +11,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     
     const { 
       user_id, userId,
-      title, 
-      address_line_1, addressLine1,
-      address_line_2, addressLine2,
-      city, 
       state, 
-      zip_code, zipCode,
-      country, 
-      is_default, isDefault
+      lga, 
+      area, 
+      street, 
+      house_number, houseNumber,
+      is_default, isDefault,
+      title, 
     } = body;
 
     const resolvedUserId = user_id ?? userId;
-    const resolvedAddressLine1 = address_line_1 ?? addressLine1;
-    const resolvedAddressLine2 = address_line_2 ?? addressLine2;
-    const resolvedZipCode = zip_code ?? zipCode;
     const resolvedIsDefault = is_default ?? isDefault;
+    const resolvedHouseNumber = house_number ?? houseNumber;
 
     // Handle setting as default
     if (resolvedIsDefault === true) {
@@ -52,22 +49,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
-    // Construct update payload with only provided fields
+    // Construct update payload with exact fields
     const updatePayload: any = {};
-    if (title !== undefined) updatePayload.title = title;
     
-    // Check both snake_case and camelCase for addressLine1
-    if (resolvedAddressLine1 !== undefined) updatePayload.address_line_1 = resolvedAddressLine1;
-    
-    // Check both snake_case and camelCase for addressLine2
-    if (resolvedAddressLine2 !== undefined) updatePayload.address_line_2 = resolvedAddressLine2;
-    
-    if (city !== undefined) updatePayload.city = city;
     if (state !== undefined) updatePayload.state = state;
-    
-    if (resolvedZipCode !== undefined) updatePayload.zip_code = resolvedZipCode;
-    if (country !== undefined) updatePayload.country = country;
-    
+    if (lga !== undefined) updatePayload.lga = lga;
+    if (area !== undefined) updatePayload.area = area;
+    if (street !== undefined) updatePayload.street = street;
+    if (resolvedHouseNumber !== undefined) updatePayload.house_number = resolvedHouseNumber;
+    if (title !== undefined) updatePayload.title = title;
     if (resolvedIsDefault !== undefined) updatePayload.is_default = resolvedIsDefault;
     
     // Only update if we have fields to update

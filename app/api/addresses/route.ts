@@ -35,25 +35,35 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { 
+      // Fields from Flutter App
       user_id, userId,
-      title, 
-      address_line_1, addressLine1,
-      address_line_2, addressLine2,
-      city, 
       state, 
-      zip_code, zipCode,
-      country, 
-      is_default, isDefault
+      lga, 
+      area, 
+      street, 
+      house_number, houseNumber,
+      is_default, isDefault,
+      
+      // Keep title if passed (though likely not in your new model)
+      title, 
     } = body;
 
     const resolvedUserId = user_id ?? userId;
-    const resolvedAddressLine1 = address_line_1 ?? addressLine1;
-    const resolvedAddressLine2 = address_line_2 ?? addressLine2;
-    const resolvedZipCode = zip_code ?? zipCode;
     const resolvedIsDefault = is_default ?? isDefault;
+    const resolvedHouseNumber = house_number ?? houseNumber;
 
-    if (!resolvedUserId || !title || !resolvedAddressLine1 || !city) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    if (!resolvedUserId || !state || !lga || !area || !street || !resolvedHouseNumber) {
+      return NextResponse.json({ 
+        error: 'Missing required fields',
+        received: { 
+          userId: resolvedUserId, 
+          state, 
+          lga, 
+          area, 
+          street, 
+          houseNumber: resolvedHouseNumber 
+        }
+      }, { status: 400 });
     }
 
     // If setting as default, unset others first for this user
@@ -64,17 +74,19 @@ export async function POST(req: NextRequest) {
         .eq('user_id', resolvedUserId);
     }
 
+    // Construct title if not provided
+    const finalTitle = title ?? `${resolvedHouseNumber} ${street}`;
+
     const { data, error } = await supabase
       .from('addresses')
       .insert([{
         user_id: resolvedUserId,
-        title,
-        address_line_1: resolvedAddressLine1,
-        address_line_2: resolvedAddressLine2,
-        city,
+        title: finalTitle,
         state,
-        zip_code: resolvedZipCode,
-        country: country || 'Nigeria',
+        lga,
+        area,
+        street,
+        house_number: resolvedHouseNumber,
         is_default: resolvedIsDefault || false
       }])
       .select()
