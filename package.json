@@ -27,6 +27,7 @@
     "typescript": "^5"
   },
   "overrides": {
-    "minimatch": "^9.0.7"
+    "minimatch": "^9.0.7",
+    "@tootallnate/once": "^3.0.1"
   }
 }
