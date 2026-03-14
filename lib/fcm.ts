@@ -68,8 +68,8 @@ export async function sendToAll(payload: FcmPayload): Promise<void> {
 /** Notify customer that their order was placed. */
 export async function notifyOrderCreated(userId: string, orderId: number): Promise<void> {
   await sendToUser(userId, {
-    title: `Order #${orderId} placed`,
-    body: 'Thank you for ordering with us.',
+    title: 'Order placed',
+    body: 'Thank you for ordering with us. Your order is now being processed.',
     data: { order_id: String(orderId), route: 'order_history', type: 'order_placed' },
   });
 }
@@ -111,7 +111,7 @@ export async function notifyOrderStatusChange(
   if (!message) return;
 
   await sendToUser(userId, {
-    title: `Order #${orderId}: ${message.title}`,
+    title: message.title,
     body: message.body,
     data: {
       order_id: String(orderId),
