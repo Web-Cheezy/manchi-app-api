@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { normalizeLocation } from '@/lib/utils';
+import { notifyOrderCreated } from '@/lib/fcm';
 
 export async function GET(req: NextRequest) {
   if (!validateRequest(req)) return unauthorizedResponse();
@@ -49,6 +51,9 @@ export async function POST(req: NextRequest) {
     const resolvedTotalAmount = total_amount ?? totalAmount;
     const resolvedDeliveryAddress = delivery_address ?? deliveryAddress;
     
+    // Normalize location to ensure it matches Admin configuration (e.g. "Chasemall" vs full address)
+    const normalizedLocation = normalizeLocation(location);
+
     if (!resolvedUserId || !items || !resolvedTotalAmount) {
         return NextResponse.json({ error: 'Missing required order fields' }, { status: 400 });
     }
@@ -62,7 +67,7 @@ export async function POST(req: NextRequest) {
         vat: vat || 0,
         status: status || 'pending',
         delivery_address: resolvedDeliveryAddress,
-        location,
+        location: normalizedLocation,
         items,
       }])
       .select()
@@ -89,6 +94,11 @@ export async function POST(req: NextRequest) {
       console.error('Error creating order items:', itemsError);
       return NextResponse.json({ error: 'Order created but items failed' }, { status: 500 });
     }
+
+    // Notify customer (fire-and-forget)
+    notifyOrderCreated(resolvedUserId, orderData.id).catch((e) =>
+      console.error('FCM order created notify:', e)
+    );
 
     return NextResponse.json({ 
       message: 'Order created successfully',

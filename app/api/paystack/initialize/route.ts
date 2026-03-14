@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateRequest, unauthorizedResponse } from '@/lib/auth';
 import { saveTransaction } from '@/lib/db';
+import { normalizeLocation } from '@/lib/utils';
 
 export async function POST(req: NextRequest) {
   // 1. Security Check
@@ -10,7 +11,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { email, amount, userId, metadata } = body;
+    const { email, amount, userId, metadata, location } = body;
 
     if (!email || !amount) {
       return NextResponse.json(
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
     const paystackMetadata = {
       ...metadata,
       user_id: userId, // Custom field to track which user made this payment
+      location: location // Save location in metadata for Paystack reference
     };
 
     const paystackResponse = await fetch('https://api.paystack.co/transaction/initialize', {
@@ -60,7 +62,8 @@ export async function POST(req: NextRequest) {
     
     // We try to save extra fields if the DB supports them, otherwise they are ignored if column doesn't exist
     // (Ensure you update your Supabase table schema to include user_id and metadata if you want them saved)
-    await saveTransaction(reference, email, amount, userId, paystackMetadata);
+    const normalizedLocation = normalizeLocation(location);
+    await saveTransaction(reference, email, amount, userId, paystackMetadata, normalizedLocation);
 
     // 4. Return result to Flutter app
     return NextResponse.json({

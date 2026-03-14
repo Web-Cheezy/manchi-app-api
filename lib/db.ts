@@ -13,13 +13,15 @@ export async function saveTransaction(
   email: string, 
   amount: number, 
   userId?: string, 
-  metadata?: any
+  metadata?: any,
+  location?: string
 ) {
   const payload: any = { reference, email, amount, status: 'pending' };
   
   // Only add these if they exist (and assuming columns exist)
   if (userId) payload.user_id = userId;
   if (metadata) payload.metadata = metadata;
+  if (location) payload.location = location;
 
   const { data, error } = await supabase
     .from('transactions')
@@ -63,4 +65,43 @@ export async function getUserTransactions(email: string) {
 
     if (error) handleSupabaseError(error);
     return data;
+}
+
+// --- FCM tokens (for push notifications) ---
+
+export async function upsertFcmToken(fcmToken: string, userId?: string | null) {
+  const { data, error } = await supabase
+    .from('fcm_tokens')
+    .upsert(
+      {
+        fcm_token: fcmToken,
+        user_id: userId ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'fcm_token' }
+    )
+    .select()
+    .single();
+
+  if (error) handleSupabaseError(error);
+  return data;
+}
+
+export async function getFcmTokensByUserId(userId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('fcm_tokens')
+    .select('fcm_token')
+    .eq('user_id', userId);
+
+  if (error) handleSupabaseError(error);
+  return (data ?? []).map((r) => r.fcm_token).filter(Boolean);
+}
+
+export async function getAllFcmTokens(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('fcm_tokens')
+    .select('fcm_token');
+
+  if (error) handleSupabaseError(error);
+  return (data ?? []).map((r) => r.fcm_token).filter(Boolean);
 }
