@@ -68,11 +68,38 @@ export async function sendToAll(payload: FcmPayload): Promise<void> {
 /** Notify customer that their order was placed. */
 export async function notifyOrderCreated(userId: string, orderId: number): Promise<void> {
   await sendToUser(userId, {
-    title: 'Order placed',
-    body: `Your order #${orderId} has been placed.`,
-    data: { order_id: String(orderId), route: 'order_history' },
+    title: `Order #${orderId} placed`,
+    body: 'Thank you for ordering with us.',
+    data: { order_id: String(orderId), route: 'order_history', type: 'order_placed' },
   });
 }
+
+const statusMessages: Record<string, { title: string; body: string }> = {
+  pending: {
+    title: 'Order received',
+    body: 'We have received your order and will confirm it shortly.',
+  },
+  confirmed: {
+    title: 'Order confirmed',
+    body: 'Your order has been confirmed and will soon be prepared.',
+  },
+  preparing: {
+    title: 'Order is being prepared',
+    body: 'Our kitchen is preparing your order.',
+  },
+  delivering: {
+    title: 'Order out for delivery',
+    body: 'Your order is on its way.',
+  },
+  delivered: {
+    title: 'Order delivered',
+    body: 'Your order has been delivered. Enjoy your meal!',
+  },
+  cancelled: {
+    title: 'Order cancelled',
+    body: 'Your order has been cancelled. If this is unexpected, please contact support.',
+  },
+};
 
 /** Notify customer of order status change. */
 export async function notifyOrderStatusChange(
@@ -80,17 +107,17 @@ export async function notifyOrderStatusChange(
   orderId: number,
   status: string
 ): Promise<void> {
-  const body =
-    status === 'preparing'
-      ? `Order #${orderId} is being prepared.`
-      : status === 'delivered'
-        ? `Order #${orderId} has been delivered.`
-        : status === 'cancelled'
-          ? `Order #${orderId} was cancelled.`
-          : `Order #${orderId} status: ${status}.`;
+  const message = statusMessages[status];
+  if (!message) return;
+
   await sendToUser(userId, {
-    title: 'Order update',
-    body,
-    data: { order_id: String(orderId), route: 'order_history', status },
+    title: `Order #${orderId}: ${message.title}`,
+    body: message.body,
+    data: {
+      order_id: String(orderId),
+      status,
+      type: 'order_status_changed',
+      route: 'order_history',
+    },
   });
 }

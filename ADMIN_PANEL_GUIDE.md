@@ -94,7 +94,68 @@ The RLS policies will likely block regular admins from inserting into `foods` or
 
 ---
 
-## 4. Summary of Data Flow
+## 4. Order Notifications (FCM)
+
+Your mobile app is ready to receive push notifications. The backend now sends FCM notifications for:
+
+- **Order placed** – when a new order is created.
+- **Order status changes** – when an admin updates the order status.
+
+### 4.1 How tokens are registered
+
+- The app calls `POST /api/fcm/register` with:
+  - `fcm_token`: the device FCM token
+  - `user_id`: the Supabase user id
+- The backend upserts into `public.fcm_tokens` so each user can have multiple device tokens.
+
+### 4.2 What the admin panel must call
+
+To trigger notifications, the admin panel **must use the backend API**, not direct Supabase table updates:
+
+- **Create order**  
+  - Call: `POST https://manchi-app-api.vercel.app/api/orders`  
+  - Headers:  
+    - `Content-Type: application/json`  
+    - `x-api-key: <API_SECRET_KEY>`  
+  - Body: includes `user_id`, `items`, `totalAmount`, etc.  
+  - Backend side effects:  
+    - Inserts into `orders` and `order_items`.  
+    - Sends FCM via `notifyOrderCreated`, for example:  
+      > “Your order #123 has been placed. Thank you for ordering with us.”
+
+- **Update order status**  
+  - Call: `PATCH https://manchi-app-api.vercel.app/api/orders/{id}`  
+  - Headers:  
+    - `Content-Type: application/json`  
+    - `x-api-key: <API_SECRET_KEY>`  
+  - Body:
+    ```json
+    { "status": "pending | confirmed | preparing | delivering | delivered | cancelled" }
+    ```
+  - Backend side effects:  
+    - Updates `orders.status`.  
+    - If status changed and `user_id` exists, sends FCM via `notifyOrderStatusChange` with messages like:
+      - `confirmed`: “Your order #123 has been confirmed.”  
+      - `preparing`: “We are preparing your order #123.”  
+      - `delivering`: “Your order #123 is on its way.”  
+      - `delivered`: “Your order #123 has been delivered.”  
+      - `cancelled`: “Your order #123 has been cancelled.”
+
+If the admin panel updates the `orders` table **directly** via the Supabase client (bypassing these API routes), **no notifications will be sent**.
+
+### 4.3 Backend configuration required
+
+- Ensure `FIREBASE_SERVICE_ACCOUNT_JSON` is set in your environment (Vercel + local) with your Firebase service account JSON so `firebase-admin` can send FCM messages.
+- Ensure `fcm_tokens` in Supabase is being populated (the app is successfully calling `/api/fcm/register`).
+
+Once these conditions are met and the admin panel calls the routes above, customers will:
+
+- Receive a **thank you / order placed** push right after placing an order.
+- Receive **status update** pushes as you move the order through the workflow.
+
+---
+
+## 5. Summary of Data Flow
 
 1.  **App** sends full address: `"Aurora Mall, No. 39..."`
 2.  **Backend** saves it as-is.
