@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       deliveryAddress,
       location,
       items,
+      delivery_method,
     } = body;
 
     const resolvedUserId = user_id ?? userId;
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest) {
         delivery_address: resolvedDeliveryAddress,
         location: normalizedLocation,
         items,
+        delivery_method,
       }])
       .select()
       .single();
