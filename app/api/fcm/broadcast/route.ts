@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateRequest, unauthorizedResponse } from '@/lib/auth';
 import { sendToAll } from '@/lib/fcm';
+import { insertUserNotification } from '@/lib/db';
 
 /**
  * Admin broadcast: send a push notification to all registered FCM tokens.
@@ -25,6 +26,10 @@ export async function POST(req: NextRequest) {
       body: String(messageBody),
       data: data && typeof data === 'object' ? data : undefined,
     });
+
+    await insertUserNotification(null, String(title), String(messageBody), 'broadcast').catch(
+      (e) => console.error('Save broadcast notification:', e)
+    );
 
     return NextResponse.json({ message: 'Broadcast sent' });
   } catch (error) {

@@ -45,7 +45,57 @@ create table if not exists public.fcm_tokens (
 
 ---
 
-## 2. Orders table (reference only)
+## 2. User notifications table (notification history / sync)
+
+Stores every notification sent (order placed, status change, admin broadcast) so the app’s Notifications tab can show reliable history via `GET /api/notifications`, even when the app was closed or the user didn’t open from the notification.
+
+```sql
+-- user_notifications: one row per notification (per user or broadcast).
+-- user_id NULL = broadcast (visible to all users).
+create table if not exists public.user_notifications (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid null references auth.users(id) on delete cascade,
+  title      text not null,
+  body       text not null,
+  type       text not null default 'order_placed',  -- e.g. 'order_placed', 'order_status_changed', 'broadcast'
+  order_id   text null,
+  created_at timestamptz not null default now(),
+  is_read    boolean not null default false
+);
+
+create index if not exists idx_user_notifications_user_id on public.user_notifications(user_id);
+create index if not exists idx_user_notifications_created_at on public.user_notifications(created_at desc);
+create index if not exists idx_user_notifications_user_read on public.user_notifications(user_id, is_read);
+
+alter table public.user_notifications enable row level security;
+
+create policy "Service role can manage user_notifications"
+  on public.user_notifications for all
+  using (true)
+  with check (true);
+```
+
+If you use `text` for user ids elsewhere (e.g. no FK to `auth.users`):
+
+```sql
+create table if not exists public.user_notifications (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    text null,
+  title      text not null,
+  body       text not null,
+  type       text not null default 'order_placed',
+  order_id   text null,
+  created_at timestamptz not null default now(),
+  is_read    boolean not null default false
+);
+
+create index if not exists idx_user_notifications_user_id on public.user_notifications(user_id);
+create index if not exists idx_user_notifications_created_at on public.user_notifications(created_at desc);
+```
+
+---
+
+## 3. Orders table (reference only)
 
 Your `orders` table should have at least:
 
@@ -58,7 +108,7 @@ No change needed if you already have `user_id` and `status` on `orders`.
 
 ---
 
-## 3. Auth / OTP
+## 4. Auth / OTP
 
 OTP is handled by **Supabase Auth** (signInWithOtp sends the email; verifyOtp validates the token). You do **not** need any extra SQL tables for OTP.
 
@@ -67,5 +117,6 @@ OTP is handled by **Supabase Auth** (signInWithOtp sends the email; verifyOtp va
 ## Summary
 
 - **Add:** `fcm_tokens` table (and optional RLS) as above.
+- **Add:** `user_notifications` table so the app can show notification history via `GET /api/notifications` and mark read via `PATCH /api/notifications/{id}`.
 - **Optional:** Ensure `orders.user_id` and `orders.status` exist and match the backend (they already do in your code).
 - **No new tables** for auth/OTP; Supabase Auth covers that.

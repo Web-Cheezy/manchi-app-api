@@ -5,7 +5,7 @@
  */
 
 import * as admin from 'firebase-admin';
-import { getFcmTokensByUserId, getAllFcmTokens } from './db';
+import { getFcmTokensByUserId, getAllFcmTokens, insertUserNotification } from './db';
 
 let app: admin.app.App | null = null;
 
@@ -67,11 +67,16 @@ export async function sendToAll(payload: FcmPayload): Promise<void> {
 
 /** Notify customer that their order was placed. */
 export async function notifyOrderCreated(userId: string, orderId: number): Promise<void> {
+  const title = 'Order placed';
+  const body = 'Thank you for ordering with us. Your order is now being processed.';
   await sendToUser(userId, {
-    title: 'Order placed',
-    body: 'Thank you for ordering with us. Your order is now being processed.',
+    title,
+    body,
     data: { order_id: String(orderId), route: 'order_history', type: 'order_placed' },
   });
+  await insertUserNotification(userId, title, body, 'order_placed', orderId).catch((e) =>
+    console.error('[FCM] Save notification:', e)
+  );
 }
 
 const statusMessages: Record<string, { title: string; body: string }> = {
@@ -120,4 +125,11 @@ export async function notifyOrderStatusChange(
       route: 'order_history',
     },
   });
+  await insertUserNotification(
+    userId,
+    message.title,
+    message.body,
+    'order_status_changed',
+    orderId
+  ).catch((e) => console.error('[FCM] Save notification:', e));
 }

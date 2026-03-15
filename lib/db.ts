@@ -105,3 +105,64 @@ export async function getAllFcmTokens(): Promise<string[]> {
   if (error) handleSupabaseError(error);
   return (data ?? []).map((r) => r.fcm_token).filter(Boolean);
 }
+
+// --- User notifications (history for Notifications tab) ---
+
+export type NotificationType = 'order_placed' | 'order_status_changed' | 'broadcast';
+
+export async function insertUserNotification(
+  userId: string | null,
+  title: string,
+  body: string,
+  type: NotificationType,
+  orderId?: string | number | null
+) {
+  const { data, error } = await supabase
+    .from('user_notifications')
+    .insert({
+      user_id: userId ?? null,
+      title,
+      body,
+      type,
+      order_id: orderId != null ? String(orderId) : null,
+    })
+    .select()
+    .single();
+
+  if (error) handleSupabaseError(error);
+  return data;
+}
+
+export async function getUserNotifications(userId: string) {
+  const { data, error } = await supabase
+    .from('user_notifications')
+    .select('*')
+    .or(`user_id.eq.${userId},user_id.is.null`)
+    .order('created_at', { ascending: false });
+
+  if (error) handleSupabaseError(error);
+  return data ?? [];
+}
+
+export async function markNotificationRead(id: string, userId: string) {
+  const { data, error } = await supabase
+    .from('user_notifications')
+    .update({ is_read: true })
+    .eq('id', id)
+    .or(`user_id.eq.${userId},user_id.is.null`)
+    .select()
+    .single();
+
+  if (error) handleSupabaseError(error);
+  return data;
+}
+
+/** Mark all notifications for this user (and broadcasts) as read. */
+export async function markAllNotificationsRead(userId: string) {
+  const { error } = await supabase
+    .from('user_notifications')
+    .update({ is_read: true })
+    .or(`user_id.eq.${userId},user_id.is.null`);
+
+  if (error) handleSupabaseError(error);
+}
