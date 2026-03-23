@@ -81,6 +81,12 @@ Wrappers around Supabase Auth.
 - **/initialize**: Calls Paystack API to generate a checkout URL.
 - **/verify**: Confirms payment status and updates the database.
 
+### 🚚 Transport Prices (`app/api/transport_prices`)
+- **GET /api/transport_prices?lga={LGA}**: Fetches the delivery price for a specific LGA.
+  - **Success (200)**: `{"price": 2500}`
+  - **Default (200)**: `{"price": 3500}` (if LGA is not found in the database)
+  - *Note*: Handles special characters like `/` automatically.
+
 ---
 
 ## 5. How to Implement Your Own Backend Integration
