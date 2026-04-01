@@ -1,11 +1,13 @@
 import { supabase } from './supabase';
 
 // Helper to handle Supabase errors
-const handleSupabaseError = (error: any) => {
+const handleSupabaseError = (error: unknown) => {
   console.error('[DB Error]', error);
   // Don't throw immediately if it's just a column missing error during development
   // but for now we throw to be safe
-  throw new Error(error.message || 'Database operation failed');
+  const message =
+    typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message) : undefined;
+  throw new Error(message || 'Database operation failed');
 };
 
 export async function saveTransaction(
@@ -13,10 +15,10 @@ export async function saveTransaction(
   email: string, 
   amount: number, 
   userId?: string, 
-  metadata?: any,
+  metadata?: unknown,
   location?: string
 ) {
-  const payload: any = { reference, email, amount, status: 'pending' };
+  const payload: Record<string, unknown> = { reference, email, amount, status: 'pending' };
   
   // Only add these if they exist (and assuming columns exist)
   if (userId) payload.user_id = userId;

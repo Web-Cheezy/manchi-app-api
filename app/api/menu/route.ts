@@ -15,8 +15,9 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
 
     return NextResponse.json({ menu: data });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Fetch Menu Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Internal Server Error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

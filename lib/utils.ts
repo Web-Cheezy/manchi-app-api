@@ -1,7 +1,7 @@
 
 /**
  * Normalizes location strings to match admin configuration.
- * Maps full addresses to short codes like 'Chasemall' or 'Aurora'.
+ * Maps full addresses to short codes like 'Chasemall' or 'Eromo'.
  */
 export function normalizeLocation(input: string | undefined | null): string {
   if (!input) return 'Chasemall'; // Default fallback
@@ -10,8 +10,8 @@ export function normalizeLocation(input: string | undefined | null): string {
 
   if (lowerInput.includes('chasemall')) {
     return 'Chasemall';
-  } else if (lowerInput.includes('aurora')) {
-    return 'Aurora';
+  } else if (lowerInput.includes('eromo') || lowerInput.includes('aurora')) {
+    return 'Eromo';
   }
 
   // If it doesn't match known patterns, return as is (or default to Chasemall if strict)

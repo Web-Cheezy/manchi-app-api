@@ -19,6 +19,28 @@ interface HealthResponse {
   };
 }
 
+function StatusIcon({ status }: { status: Status }) {
+  if (status === 'healthy') return <span className="text-green-500 text-xl">●</span>;
+  if (status === 'degraded') return <span className="text-yellow-500 text-xl">●</span>;
+  if (status === 'unhealthy') return <span className="text-red-500 text-xl">●</span>;
+  return <span className="text-gray-400 text-xl">●</span>;
+}
+
+function StatusBadge({ status }: { status: Status }) {
+  const colors: Record<Status, string> = {
+    healthy: 'bg-green-100 text-green-800 border-green-200',
+    unhealthy: 'bg-red-100 text-red-800 border-red-200',
+    degraded: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    unknown: 'bg-gray-100 text-gray-800 border-gray-200',
+  };
+
+  return (
+    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${colors[status]}`}>
+      {status.toUpperCase()}
+    </span>
+  );
+}
+
 export default function Home() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,27 +57,6 @@ export default function Home() {
         setLoading(false);
       });
   }, []);
-
-  const StatusIcon = ({ status }: { status: Status }) => {
-    if (status === 'healthy') return <span className="text-green-500 text-xl">●</span>;
-    if (status === 'degraded') return <span className="text-yellow-500 text-xl">●</span>;
-    if (status === 'unhealthy') return <span className="text-red-500 text-xl">●</span>;
-    return <span className="text-gray-400 text-xl">●</span>;
-  };
-
-  const StatusBadge = ({ status }: { status: Status }) => {
-    const colors = {
-      healthy: 'bg-green-100 text-green-800 border-green-200',
-      unhealthy: 'bg-red-100 text-red-800 border-red-200',
-      degraded: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      unknown: 'bg-gray-100 text-gray-800 border-gray-200',
-    };
-    return (
-      <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${colors[status] || colors.unknown}`}>
-        {status.toUpperCase()}
-      </span>
-    );
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">

@@ -23,29 +23,38 @@ async function reverseGeocode(lat: number, lng: number, apiKey: string) {
   return { response, data };
 }
 
-function buildErrorResponse(data: any, statusCode: number) {
+function buildErrorResponse(data: unknown, statusCode: number) {
+  const record = typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
   return NextResponse.json(
     {
       error:
-        data?.error_message ||
-        data?.status ||
+        record.error_message ||
+        record.status ||
         'Failed to call Google Maps Geocoding API',
     },
     { status: statusCode },
   );
 }
 
-function buildSuccessResponse(data: any) {
-  const results = Array.isArray(data?.results)
-    ? data.results.map((item: any) => ({
-        formatted_address: item.formatted_address,
-        location: item.geometry?.location,
-        place_id: item.place_id,
-      }))
+function buildSuccessResponse(data: unknown) {
+  const record = typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
+  const resultsValue = record.results;
+
+  const results = Array.isArray(resultsValue)
+    ? resultsValue.map((item: unknown) => {
+        const itemRecord = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
+        const geometry = typeof itemRecord.geometry === 'object' && itemRecord.geometry !== null ? (itemRecord.geometry as Record<string, unknown>) : {};
+        const location = geometry.location;
+        return {
+          formatted_address: itemRecord.formatted_address,
+          location,
+          place_id: itemRecord.place_id,
+        };
+      })
     : [];
 
   return NextResponse.json({
-    status: data.status,
+    status: record.status,
     results,
   });
 }
@@ -93,7 +102,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!validateRequest(req)) return unauthorizedResponse();
 
-  let body: any;
+  let body: unknown;
 
   try {
     body = await req.json();
@@ -104,7 +113,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { address, lat, lng } = body || {};
+  const bodyRecord = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+  const address = bodyRecord.address;
+  const lat = bodyRecord.lat;
+  const lng = bodyRecord.lng;
 
   if (!address && (lat === undefined || lng === undefined)) {
     return NextResponse.json(
@@ -126,7 +138,7 @@ export async function POST(req: NextRequest) {
   try {
     let result;
 
-    if (address) {
+    if (typeof address === 'string' && address) {
       result = await geocodeByAddress(address, apiKey);
     } else {
       const latNum = Number(lat);

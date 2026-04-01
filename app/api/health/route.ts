@@ -31,7 +31,7 @@ export async function GET() {
 
   // 2. Check Database Connection
   try {
-    const { count, error } = await supabase
+    const { error } = await supabase
       .from('transactions')
       .select('*', { count: 'exact', head: true });
 
@@ -42,9 +42,9 @@ export async function GET() {
       checks.database.status = 'healthy';
       checks.database.message = 'Connected to Supabase';
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     checks.database.status = 'unhealthy';
-    checks.database.message = err.message || 'Connection failed';
+    checks.database.message = err instanceof Error ? err.message : 'Connection failed';
   }
 
   // 3. Check Paystack (Simple availability check via IP or just config)
@@ -61,7 +61,7 @@ export async function GET() {
           checks.paystack.status = 'degraded';
           checks.paystack.message = `Status: ${response.status}`;
       }
-  } catch (err: any) {
+  } catch {
       checks.paystack.status = 'unhealthy';
       checks.paystack.message = 'Could not reach Paystack API';
   }
