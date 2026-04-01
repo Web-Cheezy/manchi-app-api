@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   if (!validateRequest(req)) return unauthorizedResponse();
-
-  const searchParams = req.nextUrl.searchParams;
-  const userId = searchParams.get('userId');
-
-  if (!userId) {
-    return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
-  }
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
 
   try {
     const { data, error } = await supabase
       .from('addresses')
       .select('*')
-      .eq('user_id', userId)
+      .eq('user_id', auth.user.id)
       .order('is_default', { ascending: false }) // Show default first
       .order('created_at', { ascending: false });
 
@@ -32,12 +27,13 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   if (!validateRequest(req)) return unauthorizedResponse();
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
     const { 
       // Fields from Flutter App
-      user_id, userId,
       state, 
       lga, 
       area, 
@@ -49,15 +45,13 @@ export async function POST(req: NextRequest) {
       title, 
     } = body;
 
-    const resolvedUserId = user_id ?? userId;
     const resolvedIsDefault = is_default ?? isDefault;
     const resolvedHouseNumber = house_number ?? houseNumber;
 
-    if (!resolvedUserId || !state || !lga || !area || !street || !resolvedHouseNumber) {
+    if (!state || !lga || !area || !street || !resolvedHouseNumber) {
       return NextResponse.json({ 
         error: 'Missing required fields',
         received: { 
-          userId: resolvedUserId, 
           state, 
           lga, 
           area, 
@@ -72,7 +66,7 @@ export async function POST(req: NextRequest) {
       await supabase
         .from('addresses')
         .update({ is_default: false })
-        .eq('user_id', resolvedUserId);
+        .eq('user_id', auth.user.id);
     }
 
     // Construct title if not provided
@@ -81,7 +75,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase
       .from('addresses')
       .insert([{
-        user_id: resolvedUserId,
+        user_id: auth.user.id,
         title: finalTitle,
         state,
         lga,

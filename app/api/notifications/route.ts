@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
 import { getUserNotifications, markAllNotificationsRead } from '@/lib/db';
 
 /**
@@ -9,14 +9,11 @@ import { getUserNotifications, markAllNotificationsRead } from '@/lib/db';
  */
 export async function GET(req: NextRequest) {
   if (!validateRequest(req)) return unauthorizedResponse();
-
-  const userId = req.nextUrl.searchParams.get('userId');
-  if (!userId) {
-    return NextResponse.json({ error: 'userId is required' }, { status: 400 });
-  }
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
 
   try {
-    const notifications = await getUserNotifications(userId);
+    const notifications = await getUserNotifications(auth.user.id);
     return NextResponse.json({ notifications });
   } catch (error) {
     console.error('Get notifications error:', error);
@@ -31,21 +28,11 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   if (!validateRequest(req)) return unauthorizedResponse();
-
-  let userId: string | null = null;
-  try {
-    const body = await req.json().catch(() => ({}));
-    userId = body.userId ?? body.user_id ?? req.nextUrl.searchParams.get('userId');
-  } catch {
-    userId = req.nextUrl.searchParams.get('userId');
-  }
-
-  if (!userId) {
-    return NextResponse.json({ error: 'userId is required' }, { status: 400 });
-  }
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
 
   try {
-    await markAllNotificationsRead(userId);
+    await markAllNotificationsRead(auth.user.id);
     return new NextResponse(null, { status: 204 });
   } catch (error) {
     console.error('Clear notifications error:', error);

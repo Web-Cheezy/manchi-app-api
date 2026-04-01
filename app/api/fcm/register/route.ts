@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
 import { upsertFcmToken } from '@/lib/db';
 
 export async function POST(req: NextRequest) {
   if (!validateRequest(req)) return unauthorizedResponse();
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
-    const { fcm_token: fcmToken, user_id: userId } = body;
+    const { fcm_token: fcmToken } = body;
 
     if (!fcmToken || typeof fcmToken !== 'string') {
       return NextResponse.json(
@@ -16,7 +18,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await upsertFcmToken(fcmToken, userId ?? undefined);
+    await upsertFcmToken(fcmToken, auth.user.id);
 
     return NextResponse.json({ message: 'FCM token registered' });
   } catch (error) {

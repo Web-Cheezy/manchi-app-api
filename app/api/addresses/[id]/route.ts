@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!validateRequest(req)) return unauthorizedResponse();
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
 
   try {
     const { id } = await params;
     const body = await req.json();
     
     const { 
-      user_id, userId,
       state, 
       lga, 
       area, 
@@ -20,33 +21,30 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       title, 
     } = body;
 
-    const resolvedUserId = user_id ?? userId;
     const resolvedIsDefault = is_default ?? isDefault;
     const resolvedHouseNumber = house_number ?? houseNumber;
 
+    const { data: existing, error: existingError } = await supabase
+      .from('addresses')
+      .select('id, user_id')
+      .eq('id', id)
+      .single();
+
+    if (existingError || !existing) {
+      return NextResponse.json({ error: 'Address not found' }, { status: 404 });
+    }
+
+    if (existing.user_id !== auth.user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     // Handle setting as default
     if (resolvedIsDefault === true) {
-      let targetUserId = resolvedUserId;
-
-      // If user_id is not provided, fetch it from the address
-      if (!targetUserId) {
-        const { data: addressData } = await supabase
-          .from('addresses')
-          .select('user_id')
-          .eq('id', id)
-          .single();
-        
-        targetUserId = addressData?.user_id;
-      }
-
-      if (targetUserId) {
-        // Unset other defaults for this user
-        await supabase
-          .from('addresses')
-          .update({ is_default: false })
-          .eq('user_id', targetUserId)
-          .neq('id', id); 
-      }
+      await supabase
+        .from('addresses')
+        .update({ is_default: false })
+        .eq('user_id', auth.user.id)
+        .neq('id', id);
     }
 
     // Construct update payload with exact fields
@@ -69,6 +67,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       .from('addresses')
       .update(updatePayload)
       .eq('id', id)
+      .eq('user_id', auth.user.id)
       .select()
       .single();
 
@@ -84,6 +83,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!validateRequest(req)) return unauthorizedResponse();
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
 
   try {
     const { id } = await params;
@@ -91,7 +92,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     const { error } = await supabase
       .from('addresses')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', auth.user.id);
 
     if (error) throw error;
 

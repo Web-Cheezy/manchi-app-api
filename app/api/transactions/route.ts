@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
 import { getUserTransactions } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
@@ -8,15 +8,11 @@ export async function GET(req: NextRequest) {
     return unauthorizedResponse();
   }
 
-  const searchParams = req.nextUrl.searchParams;
-  const email = searchParams.get('email');
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
 
-  if (!email) {
-    return NextResponse.json(
-      { error: 'Email is required' },
-      { status: 400 }
-    );
-  }
+  const email = auth.user.email;
+  if (!email) return NextResponse.json({ error: 'Email is required' }, { status: 400 });
 
   try {
     // 2. Database Proxy: Fetch data
