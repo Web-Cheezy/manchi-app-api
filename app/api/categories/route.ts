@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
 import { normalizeLocation } from '@/lib/utils';
 
 type AvailabilityStatus = 'available' | 'out_of_stock' | 'unavailable';
@@ -59,8 +58,6 @@ function isSchemaMismatch(error: unknown): boolean {
 }
 
 export async function GET(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
-
   try {
     const searchParams = req.nextUrl.searchParams;
     const store = searchParams.get('store');
@@ -79,15 +76,17 @@ export async function GET(req: NextRequest) {
     const storeValues = storeCode ? (storeCode === 'Eromo' ? ['Eromo', 'Aurora'] : [storeCode]) : undefined;
     const locationValues = locationCode ? (locationCode === 'Eromo' ? ['Eromo', 'Aurora'] : [locationCode]) : undefined;
 
-    const runFoodsQuery = async (withJoins: boolean) => {
+    const runFoodsQuery = async (withJoins: boolean, applyFilters: boolean) => {
       if (withJoins) {
         let query = supabase
           .from('foods')
           .select('category_id,status,availability_status,availability,is_available,food_availability(*)');
 
-        if (state) query = query.eq('state', state);
-        if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
-        if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+        if (applyFilters) {
+          if (state) query = query.eq('state', state);
+          if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
+          if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+        }
 
         const { data, error } = await query;
         return { data, error };
@@ -95,17 +94,25 @@ export async function GET(req: NextRequest) {
 
       let query = supabase.from('foods').select('category_id,status,availability_status,availability,is_available');
 
-      if (state) query = query.eq('state', state);
-      if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
-      if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+      if (applyFilters) {
+        if (state) query = query.eq('state', state);
+        if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
+        if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+      }
 
       const { data, error } = await query;
       return { data, error };
     };
 
-    let { data: foods, error: foodsError } = await runFoodsQuery(true);
+    let { data: foods, error: foodsError } = await runFoodsQuery(true, true);
     if (foodsError && isSchemaMismatch(foodsError)) {
-      ({ data: foods, error: foodsError } = await runFoodsQuery(false));
+      ({ data: foods, error: foodsError } = await runFoodsQuery(false, true));
+    }
+    if (foodsError && isSchemaMismatch(foodsError)) {
+      ({ data: foods, error: foodsError } = await runFoodsQuery(true, false));
+    }
+    if (foodsError && isSchemaMismatch(foodsError)) {
+      ({ data: foods, error: foodsError } = await runFoodsQuery(false, false));
     }
     if (foodsError) {
       const { data, error } = await supabase.from('categories').select('*').order('id');

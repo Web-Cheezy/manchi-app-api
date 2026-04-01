@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
 import { normalizeLocation } from '@/lib/utils';
 
 type AvailabilityStatus = 'available' | 'out_of_stock' | 'unavailable';
@@ -59,8 +58,6 @@ function isSchemaMismatch(error: unknown): boolean {
 }
 
 export async function GET(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
-
   const searchParams = req.nextUrl.searchParams;
   const foodId = searchParams.get('id');
   const categoryId = searchParams.get('categoryId');
@@ -76,16 +73,18 @@ export async function GET(req: NextRequest) {
 
   try {
     if (foodId) {
-      const runQuery = async (withJoins: boolean) => {
+      const runQuery = async (withJoins: boolean, applyFilters: boolean) => {
         if (withJoins) {
           let query = supabase
             .from('foods')
             .select('*,food_availability(*),food_sides(side:sides(*))')
             .eq('id', foodId);
 
-          if (state) query = query.eq('state', state);
-          if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
-          if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+          if (applyFilters) {
+            if (state) query = query.eq('state', state);
+            if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
+            if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+          }
 
           const { data, error } = await query.single();
           return { data, error };
@@ -93,17 +92,25 @@ export async function GET(req: NextRequest) {
 
         let query = supabase.from('foods').select('*').eq('id', foodId);
 
-        if (state) query = query.eq('state', state);
-        if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
-        if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+        if (applyFilters) {
+          if (state) query = query.eq('state', state);
+          if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
+          if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+        }
 
         const { data, error } = await query.single();
         return { data, error };
       };
 
-      let { data, error } = await runQuery(true);
+      let { data, error } = await runQuery(true, true);
       if (error && isSchemaMismatch(error)) {
-        ({ data, error } = await runQuery(false));
+        ({ data, error } = await runQuery(false, true));
+      }
+      if (error && isSchemaMismatch(error)) {
+        ({ data, error } = await runQuery(true, false));
+      }
+      if (error && isSchemaMismatch(error)) {
+        ({ data, error } = await runQuery(false, false));
       }
       if (error) throw error;
       if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -127,14 +134,16 @@ export async function GET(req: NextRequest) {
 
       return NextResponse.json({ ...dataRecord, ...(filteredAvailability !== undefined ? { food_availability: filteredAvailability } : {}), status: resolvedStatus });
     } else {
-      const runQuery = async (withJoins: boolean) => {
+      const runQuery = async (withJoins: boolean, applyFilters: boolean) => {
         if (withJoins) {
           let query = supabase.from('foods').select('*,food_availability(*)').order('name');
 
-          if (categoryId) query = query.eq('category_id', categoryId);
-          if (state) query = query.eq('state', state);
-          if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
-          if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+          if (applyFilters) {
+            if (categoryId) query = query.eq('category_id', categoryId);
+            if (state) query = query.eq('state', state);
+            if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
+            if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+          }
 
           const { data, error } = await query;
           return { data, error };
@@ -142,18 +151,26 @@ export async function GET(req: NextRequest) {
 
         let query = supabase.from('foods').select('*').order('name');
 
-        if (categoryId) query = query.eq('category_id', categoryId);
-        if (state) query = query.eq('state', state);
-        if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
-        if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+        if (applyFilters) {
+          if (categoryId) query = query.eq('category_id', categoryId);
+          if (state) query = query.eq('state', state);
+          if (storeValues) query = storeValues.length > 1 ? query.in('store', storeValues) : query.eq('store', storeValues[0]);
+          if (locationValues) query = locationValues.length > 1 ? query.in('location', locationValues) : query.eq('location', locationValues[0]);
+        }
 
         const { data, error } = await query;
         return { data, error };
       };
 
-      let { data, error } = await runQuery(true);
+      let { data, error } = await runQuery(true, true);
       if (error && isSchemaMismatch(error)) {
-        ({ data, error } = await runQuery(false));
+        ({ data, error } = await runQuery(false, true));
+      }
+      if (error && isSchemaMismatch(error)) {
+        ({ data, error } = await runQuery(true, false));
+      }
+      if (error && isSchemaMismatch(error)) {
+        ({ data, error } = await runQuery(false, false));
       }
       if (error) throw error;
 
