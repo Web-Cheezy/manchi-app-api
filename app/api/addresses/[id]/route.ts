@@ -24,11 +24,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const resolvedIsDefault = is_default ?? isDefault;
     const resolvedHouseNumber = house_number ?? houseNumber;
 
-    const { data: existing, error: existingError } = await supabase
+    const { data: existingRaw, error: existingError } = await supabase
       .from('addresses')
       .select('id, user_id')
       .eq('id', id)
       .single();
+
+    const existing = existingRaw as { id: string; user_id: string } | null;
 
     if (existingError || !existing) {
       return NextResponse.json({ error: 'Address not found' }, { status: 404 });

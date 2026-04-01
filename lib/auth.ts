@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { assertSupabaseConfigured, supabase } from '@/lib/supabase';
 
 export function validateRequest(req: NextRequest) {
   const apiKey = req.headers.get('x-api-key');
@@ -31,6 +31,7 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<{ id: stri
   const token = getBearerToken(req);
   if (!token) return null;
 
+  assertSupabaseConfigured();
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data?.user) return null;
 
@@ -41,7 +42,13 @@ export async function requireAuthenticatedUser(req: NextRequest): Promise<
   | { ok: true; user: { id: string; email: string | null } }
   | { ok: false; response: NextResponse }
 > {
-  const user = await getAuthenticatedUser(req);
+  let user: { id: string; email: string | null } | null = null;
+  try {
+    user = await getAuthenticatedUser(req);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Internal Server Error';
+    return { ok: false, response: NextResponse.json({ error: message }, { status: 500 }) };
+  }
   if (!user) {
     return {
       ok: false,

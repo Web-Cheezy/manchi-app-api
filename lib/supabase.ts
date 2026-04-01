@@ -1,11 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing Supabase environment variables');
+export function isSupabaseConfigured(): boolean {
+  return !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
 }
 
-// Create a single supabase client for interacting with your database
+export function assertSupabaseConfigured(): void {
+  if (!isSupabaseConfigured()) {
+    throw new Error('Missing Supabase environment variables');
+  }
+}
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://localhost:54321';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'invalid-service-role-key';
+
 export const supabase = createClient(supabaseUrl, supabaseKey);
