@@ -18,24 +18,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Call Supabase Auth
-    // Default metadata: role='customer', location=null (customers don't manage locations)
     const userMetadata = {
       ...(data || {}),
       role: 'customer', 
       location: null 
     };
 
-    const { data: authData, error } = await supabase.auth.signUp({
+    const { error: createError } = await supabase.auth.admin.createUser({
       email,
       password,
-      options: {
-        data: userMetadata,
-      },
+      email_confirm: true,
+      user_metadata: userMetadata,
     });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (createError) {
+      return NextResponse.json({ error: createError.message }, { status: 400 });
+    }
+
+    const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (signInError) {
+      return NextResponse.json({ error: signInError.message }, { status: 401 });
     }
 
     return NextResponse.json(authData);
