@@ -14,6 +14,9 @@ export async function POST(req: NextRequest) {
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
+      options: {
+        shouldCreateUser: false,
+      },
     });
 
     if (error) throw error;
