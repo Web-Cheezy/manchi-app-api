@@ -31,7 +31,6 @@ export async function POST(req: NextRequest) {
       password,
       options: {
         data: userMetadata,
-        emailRedirectTo: undefined,
       },
     });
 
@@ -39,25 +38,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // Send OTP to verify email (app will call /api/auth/verify with email + token)
-    const { error: otpError } = await supabase.auth.signInWithOtp({ email });
-
-    if (otpError) {
-      console.error('OTP send after signup:', otpError);
-      // User is created; return success but inform that OTP send failed
-      return NextResponse.json({
-        ...authData,
-        message: 'Account created. Check your email for the verification code.',
-        otp_sent: false,
-        otp_error: otpError.message,
-      });
-    }
-
-    return NextResponse.json({
-      ...authData,
-      message: 'Account created. Check your email for the verification code.',
-      otp_sent: true,
-    });
+    return NextResponse.json(authData);
 
   } catch (error) {
     console.error('Signup Error:', error);
