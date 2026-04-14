@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
-  // 1. Security Check
-  if (!validateRequest(req)) {
-    return unauthorizedResponse();
-  }
-
   try {
     const { searchParams } = new URL(req.url);
     const lga = searchParams.get('lga');
@@ -19,12 +13,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const cleanedLga = lga.trim();
+    if (cleanedLga.length > 120) {
+      return NextResponse.json({ price: 3500 });
+    }
+
     // 2. Fetch price from database
     // Next.js searchParams.get() handles URL decoding automatically
     const { data, error } = await supabase
       .from('transport_prices')
       .select('price')
-      .eq('lga', lga)
+      .eq('lga', cleanedLga)
       .single();
 
     if (error || !data) {

@@ -13,7 +13,7 @@ export function validateRequest(req: NextRequest) {
 
 export function unauthorizedResponse() {
   return NextResponse.json(
-    { error: 'Unauthorized: Invalid API Key' },
+    { error: 'Unauthorized' },
     { status: 401 }
   );
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
+import { requireAuthenticatedUser } from '@/lib/auth';
 import { markNotificationRead } from '@/lib/db';
 
 /**
@@ -11,7 +11,6 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!validateRequest(req)) return unauthorizedResponse();
   const auth = await requireAuthenticatedUser(req);
   if (!auth.ok) return auth.response;
 

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
+import { requireAuthenticatedUser } from '@/lib/auth';
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!validateRequest(req)) return unauthorizedResponse();
   const auth = await requireAuthenticatedUser(req);
   if (!auth.ok) return auth.response;
 
@@ -84,7 +83,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!validateRequest(req)) return unauthorizedResponse();
   const auth = await requireAuthenticatedUser(req);
   if (!auth.ok) return auth.response;
 

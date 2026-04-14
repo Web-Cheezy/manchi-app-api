@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
+import { requireAuthenticatedUser } from '@/lib/auth';
 import { normalizeLocation } from '@/lib/utils';
 import { notifyOrderCreated } from '@/lib/fcm';
 
@@ -60,7 +60,6 @@ function isSchemaMismatch(error: unknown): boolean {
 }
 
 export async function GET(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
   const auth = await requireAuthenticatedUser(req);
   if (!auth.ok) return auth.response;
 
@@ -83,7 +82,6 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
   const auth = await requireAuthenticatedUser(req);
   if (!auth.ok) return auth.response;
 

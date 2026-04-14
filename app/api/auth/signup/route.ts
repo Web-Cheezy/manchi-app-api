@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { getClientIp, normalizeEmail, rateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
-  // 1. Security Check
-  if (!validateRequest(req)) {
-    return unauthorizedResponse();
-  }
-
   try {
     const { email, password, data } = await req.json();
 
@@ -18,6 +13,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const ip = getClientIp(req);
+    const emailNorm = normalizeEmail(email);
+    const rl = rateLimit(`auth:signup:${ip}:${emailNorm}`, 5, 15 * 60 * 1000);
+    if (!rl.ok) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    }
+
     const userMetadata = {
       ...(data || {}),
       role: 'customer', 
@@ -25,7 +27,7 @@ export async function POST(req: NextRequest) {
     };
 
     const { error: createError } = await supabase.auth.admin.createUser({
-      email,
+      email: emailNorm,
       password,
       email_confirm: true,
       user_metadata: userMetadata,
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
-      email,
+      email: emailNorm,
       password,
     });
 

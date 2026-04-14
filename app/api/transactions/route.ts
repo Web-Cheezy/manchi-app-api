@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
+import { requireAuthenticatedUser } from '@/lib/auth';
 import { getUserTransactions } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
-  // 1. Security Check
-  if (!validateRequest(req)) {
-    return unauthorizedResponse();
-  }
-
   const auth = await requireAuthenticatedUser(req);
   if (!auth.ok) return auth.response;
 

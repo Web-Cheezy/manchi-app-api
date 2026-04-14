@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
+import { requireAuthenticatedUser } from '@/lib/auth';
 import { markAllNotificationsRead } from '@/lib/db';
 
 export async function POST(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
   const auth = await requireAuthenticatedUser(req);
   if (!auth.ok) return auth.response;
 
@@ -15,4 +14,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
-

@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
-import { updateTransactionStatus } from '@/lib/db';
+import { requireAuthenticatedUser } from '@/lib/auth';
+import { getTransaction, updateTransactionStatus } from '@/lib/db';
+import { getClientIp, rateLimit } from '@/lib/rateLimit';
 
 export async function GET(req: NextRequest) {
-  // 1. Security Check
-  if (!validateRequest(req)) {
-    return unauthorizedResponse();
-  }
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
 
   const searchParams = req.nextUrl.searchParams;
   const reference = searchParams.get('reference');
@@ -19,6 +18,19 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const ip = getClientIp(req);
+    const rl = rateLimit(`paystack:verify:${ip}:${auth.user.id}`, 20, 10 * 60 * 1000);
+    if (!rl.ok) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    }
+
+    const existing = await getTransaction(reference).catch(() => null);
+    const existingRecord = typeof existing === 'object' && existing !== null ? (existing as Record<string, unknown>) : null;
+    const existingUserId = existingRecord ? existingRecord.user_id : null;
+    if (!existingRecord || existingUserId !== auth.user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const secretKey = process.env.PAYSTACK_SECRET_KEY;
     if (!secretKey) {
         console.error('PAYSTACK_SECRET_KEY is not defined');

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse, requireAuthenticatedUser } from '@/lib/auth';
+import { requireAuthenticatedUser } from '@/lib/auth';
 import { getUserNotifications, markAllNotificationsRead } from '@/lib/db';
 
 /**
@@ -8,7 +8,6 @@ import { getUserNotifications, markAllNotificationsRead } from '@/lib/db';
  * Response: { "notifications": [...] } – each item has id, user_id, title, body, type, order_id, created_at, is_read (snake_case).
  */
 export async function GET(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
   const auth = await requireAuthenticatedUser(req);
   if (!auth.ok) return auth.response;
 
@@ -27,7 +26,6 @@ export async function GET(req: NextRequest) {
  * Marks all notifications for the user (and broadcasts they see) as read. Returns 204 on success.
  */
 export async function POST(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
   const auth = await requireAuthenticatedUser(req);
   if (!auth.ok) return auth.response;
 

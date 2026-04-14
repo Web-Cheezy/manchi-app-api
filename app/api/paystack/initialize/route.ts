@@ -1,19 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser, validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { requireAuthenticatedUser } from '@/lib/auth';
 import { saveTransaction } from '@/lib/db';
 import { normalizeLocation } from '@/lib/utils';
+import { getClientIp, normalizeEmail, rateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
-  // 1. Security Check
-  if (!validateRequest(req)) {
-    return unauthorizedResponse();
-  }
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
 
   try {
     const body = await req.json();
     const { email, amount, userId, metadata, location } = body;
-    const authUser = await getAuthenticatedUser(req);
-    const resolvedUserId = authUser?.id ?? userId;
+    void userId;
+
+    const ip = getClientIp(req);
+    const emailNorm = normalizeEmail(email);
+    const rl = rateLimit(`paystack:init:${ip}:${emailNorm}`, 10, 10 * 60 * 1000);
+    if (!rl.ok) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    }
 
     if (!email || !amount) {
       return NextResponse.json(
@@ -32,7 +37,7 @@ export async function POST(req: NextRequest) {
     // We pass metadata to Paystack so it's returned in webhooks/verification
     const paystackMetadata = {
       ...metadata,
-      user_id: resolvedUserId, // Custom field to track which user made this payment
+      user_id: auth.user.id, // Custom field to track which user made this payment
       location: location // Save location in metadata for Paystack reference
     };
 
@@ -65,7 +70,7 @@ export async function POST(req: NextRequest) {
     // We try to save extra fields if the DB supports them, otherwise they are ignored if column doesn't exist
     // (Ensure you update your Supabase table schema to include user_id and metadata if you want them saved)
     const normalizedLocation = normalizeLocation(location);
-    await saveTransaction(reference, email, amount, resolvedUserId, paystackMetadata, normalizedLocation);
+    await saveTransaction(reference, email, amount, auth.user.id, paystackMetadata, normalizedLocation);
 
     // 4. Return result to Flutter app
     return NextResponse.json({

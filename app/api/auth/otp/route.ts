@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { getClientIp, normalizeEmail, rateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
-
   try {
     const { email } = await req.json();
 
@@ -12,19 +10,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 });
     }
 
+    const ip = getClientIp(req);
+    const emailNorm = normalizeEmail(email);
+    const rl = rateLimit(`auth:otp:${ip}:${emailNorm}`, 3, 10 * 60 * 1000);
+    if (!rl.ok) {
+      return NextResponse.json({ message: 'If an account exists, an OTP has been sent' }, { status: 200 });
+    }
+
+    const cooldown = rateLimit(`auth:otp:cooldown:${emailNorm}`, 1, 60 * 1000);
+    if (!cooldown.ok) {
+      return NextResponse.json({ message: 'If an account exists, an OTP has been sent' }, { status: 200 });
+    }
+
     const { error } = await supabase.auth.signInWithOtp({
-      email,
+      email: emailNorm,
       options: {
         shouldCreateUser: false,
       },
     });
 
-    if (error) throw error;
+    if (error) {
+      return NextResponse.json({ message: 'If an account exists, an OTP has been sent' }, { status: 200 });
+    }
 
-    return NextResponse.json({ message: 'OTP sent successfully' });
+    return NextResponse.json({ message: 'If an account exists, an OTP has been sent' }, { status: 200 });
   } catch (error: unknown) {
     console.error('OTP Error:', error);
-    const message = error instanceof Error ? error.message : 'Internal Server Error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ message: 'If an account exists, an OTP has been sent' }, { status: 200 });
   }
 }
