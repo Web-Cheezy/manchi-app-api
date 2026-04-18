@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
 
 async function geocodeByAddress(address: string, apiKey: string) {
   const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
@@ -60,8 +59,6 @@ function buildSuccessResponse(data: unknown) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
-
   const searchParams = req.nextUrl.searchParams;
   const address = searchParams.get('address');
 
@@ -100,8 +97,6 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
-
   let body: unknown;
 
   try {

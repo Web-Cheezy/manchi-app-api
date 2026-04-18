@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
 
-export async function GET(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
-
+export async function GET(_req: NextRequest) {
   try {
     // Assuming you have a 'menu_items' table
     const { data, error } = await supabase

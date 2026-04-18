@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { requireStaffUser } from '@/lib/auth';
 import { sendToAll } from '@/lib/fcm';
 import { insertUserNotification } from '@/lib/db';
 
 /**
- * Admin broadcast: send a push notification to all registered FCM tokens.
+ * Staff broadcast: send a push notification to all registered FCM tokens.
+ * Requires Authorization: Bearer <JWT> for a user with profiles.role admin or super_admin.
  * Body: { "title": string, "body": string, "data"?: Record<string, string> }
  */
 export async function POST(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
+  const staff = await requireStaffUser(req);
+  if (!staff.ok) return staff.response;
 
   try {
     const payload = await req.json();

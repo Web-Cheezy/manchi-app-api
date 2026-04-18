@@ -1,21 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { assertSupabaseConfigured, supabase } from '@/lib/supabase';
 
-export function validateRequest(req: NextRequest) {
-  const apiKey = req.headers.get('x-api-key');
-  const validApiKey = process.env.API_SECRET_KEY;
-
-  if (!apiKey || apiKey !== validApiKey) {
-    return false;
-  }
-  return true;
+/** 401 — missing, malformed, invalid, or expired JWT (see requireAuthenticatedUser). */
+export function unauthorizedResponse() {
+  return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 }
 
-export function unauthorizedResponse() {
-  return NextResponse.json(
-    { error: 'Unauthorized' },
-    { status: 401 }
-  );
+/** 403 — valid session but not allowed for this resource or action. */
+export function forbiddenResponse(message = 'Forbidden') {
+  return NextResponse.json({ error: message }, { status: 403 });
+}
+
+const STAFF_ROLES = new Set(['admin', 'super_admin']);
+
+/**
+ * Staff-only routes (e.g. order status updates, FCM broadcast).
+ * Uses JWT + profiles.role; customers get 403 even with a valid token.
+ */
+export async function requireStaffUser(req: NextRequest): Promise<
+  | { ok: true; user: { id: string; email: string | null }; role: string }
+  | { ok: false; response: NextResponse }
+> {
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth;
+
+  assertSupabaseConfigured();
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', auth.user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.error('requireStaffUser profile:', error);
+    return { ok: false, response: forbiddenResponse() };
+  }
+
+  const role = typeof profile?.role === 'string' ? profile.role : '';
+  if (!STAFF_ROLES.has(role)) {
+    return { ok: false, response: forbiddenResponse() };
+  }
+
+  return { ok: true, user: auth.user, role };
 }
 
 export function getBearerToken(req: NextRequest): string | null {
@@ -50,10 +76,7 @@ export async function requireAuthenticatedUser(req: NextRequest): Promise<
     return { ok: false, response: NextResponse.json({ error: message }, { status: 500 }) };
   }
   if (!user) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
-    };
+    return { ok: false, response: unauthorizedResponse() };
   }
 
   return { ok: true, user };

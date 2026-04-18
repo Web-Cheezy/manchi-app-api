@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { requireStaffUser } from '@/lib/auth';
 import { notifyOrderStatusChange } from '@/lib/fcm';
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!validateRequest(req)) return unauthorizedResponse();
+  const staff = await requireStaffUser(req);
+  if (!staff.ok) return staff.response;
 
   try {
     const { id } = await params;

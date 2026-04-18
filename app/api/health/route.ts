@@ -12,10 +12,9 @@ export async function GET() {
   const hasPaystack = !!process.env.PAYSTACK_SECRET_KEY;
   const hasSupabaseUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
   const hasSupabaseKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const hasApiKey = !!process.env.API_SECRET_KEY;
   const hasGoogleMapsKey = !!process.env.GOOGLE_MAPS_API_KEY;
 
-  if (hasPaystack && hasSupabaseUrl && hasSupabaseKey && hasApiKey && hasGoogleMapsKey) {
+  if (hasPaystack && hasSupabaseUrl && hasSupabaseKey && hasGoogleMapsKey) {
     checks.env.status = 'healthy';
     checks.env.message = 'All variables configured';
   } else {
@@ -24,7 +23,6 @@ export async function GET() {
       !hasPaystack ? 'PAYSTACK_SECRET_KEY' : '',
       !hasSupabaseUrl ? 'NEXT_PUBLIC_SUPABASE_URL' : '',
       !hasSupabaseKey ? 'SUPABASE_SERVICE_ROLE_KEY' : '',
-      !hasApiKey ? 'API_SECRET_KEY' : '',
       !hasGoogleMapsKey ? 'GOOGLE_MAPS_API_KEY' : '',
     ].filter(Boolean).join(', ')}`;
   }

@@ -4,8 +4,7 @@ import { markNotificationRead } from '@/lib/db';
 
 /**
  * PATCH /api/notifications/:id
- * Body: { "is_read": true, "userId": string } (userId required for auth; is_read can be true to mark read).
- * Marks the notification as read. User can only mark notifications that belong to them or broadcasts.
+ * Marks the notification as read. Identity from JWT; user can only mark rows that belong to them or global broadcasts.
  */
 export async function PATCH(
   req: NextRequest,

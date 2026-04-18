@@ -3,8 +3,8 @@ import { requireAuthenticatedUser } from '@/lib/auth';
 import { getUserNotifications, markAllNotificationsRead } from '@/lib/db';
 
 /**
- * GET /api/notifications?userId=...
- * Returns notifications for the user (including broadcasts where user_id is null), newest first.
+ * GET /api/notifications
+ * Identity from JWT only. Returns notifications for the user (including broadcasts where user_id is null), newest first.
  * Response: { "notifications": [...] } – each item has id, user_id, title, body, type, order_id, created_at, is_read (snake_case).
  */
 export async function GET(req: NextRequest) {
@@ -21,9 +21,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/notifications/clear
- * Body or query: userId (required).
- * Marks all notifications for the user (and broadcasts they see) as read. Returns 204 on success.
+ * POST /api/notifications — marks all notifications for the authenticated user as read. Returns 204 on success.
  */
 export async function POST(req: NextRequest) {
   const auth = await requireAuthenticatedUser(req);

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateRequest, unauthorizedResponse } from '@/lib/auth';
+import { requireAuthenticatedUser } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
-  if (!validateRequest(req)) return unauthorizedResponse();
+  const result = await requireAuthenticatedUser(req);
+  if (!result.ok) return result.response;
 
   try {
     // Note: Since we are using the service role client on the backend, 

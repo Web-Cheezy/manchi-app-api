@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { getBearerToken } from '@/lib/auth';
+import { getBearerToken, unauthorizedResponse } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
   const token = getBearerToken(req);
 
   if (!token) {
-    return NextResponse.json({ error: 'Missing Authorization header' }, { status: 401 });
+    return unauthorizedResponse();
   }
 
   try {
     const { data: { user }, error } = await supabase.auth.getUser(token);
 
-    if (error) throw error;
+    if (error || !user) {
+      return unauthorizedResponse();
+    }
 
     return NextResponse.json({ user });
   } catch (error: unknown) {
