@@ -114,9 +114,63 @@ OTP is handled by **Supabase Auth** (signInWithOtp sends the email; verifyOtp va
 
 ---
 
+## 5. Account deletion support
+
+The backend now supports `POST /api/account/delete`.
+
+You do **not** need a new table for deleted accounts if you use a real placeholder Auth user and set:
+
+```env
+DELETED_USER_ID=e1ac7c48-b3eb-4b59-806e-3fe90469b532
+```
+
+### SQL to run
+
+Run only this SQL in the Supabase SQL editor to support anonymization audit fields on `orders`:
+
+```sql
+alter table public.orders
+  add column if not exists anonymized_at timestamptz,
+  add column if not exists anonymized_reason text;
+```
+
+### Example only: what the backend route does internally
+
+Do **not** run the block below as-is. It contains placeholder values like `REAL_USER_UUID_HERE` and is only showing the behavior performed by the backend route.
+
+```sql
+update public.orders
+set
+  user_id = 'e1ac7c48-b3eb-4b59-806e-3fe90469b532',
+  delivery_address = null,
+  delivery_lat = null,
+  delivery_lng = null,
+  location = null,
+  anonymized_at = now(),
+  anonymized_reason = 'optional user reason'
+where user_id = 'REAL_USER_UUID_HERE';
+
+delete from public.profiles where id = 'REAL_USER_UUID_HERE';
+delete from public.addresses where user_id = 'REAL_USER_UUID_HERE';
+
+-- Optional if these tables exist in your project:
+delete from public.fcm_tokens where user_id = 'REAL_USER_UUID_HERE';
+delete from public.user_notifications where user_id = 'REAL_USER_UUID_HERE';
+```
+
+If you want to manually test the example block, replace `REAL_USER_UUID_HERE` with an actual Supabase Auth user UUID first.
+
+Important notes:
+- `DELETED_USER_ID` must be a **real** Supabase Auth user UUID.
+- The route deletes the Auth user **last** from the backend using `supabase.auth.admin.deleteUser(...)`.
+- Keeping `orders.user_id` pointed at a valid placeholder user avoids foreign-key breakage.
+
+---
+
 ## Summary
 
 - **Add:** `fcm_tokens` table (and optional RLS) as above.
 - **Add:** `user_notifications` table so the app can show notification history via `GET /api/notifications` and mark read via `PATCH /api/notifications/{id}`.
 - **Optional:** Ensure `orders.user_id` and `orders.status` exist and match the backend (they already do in your code).
+- **Optional:** Add `orders.anonymized_at` and `orders.anonymized_reason` for delete-account auditability.
 - **No new tables** for auth/OTP; Supabase Auth covers that.

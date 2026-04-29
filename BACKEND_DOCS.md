@@ -63,6 +63,19 @@ Handles user address management.
 - **PUT /api/addresses/[id]**: Updates an address.
 - **DELETE /api/addresses/[id]**: Removes an address.
 
+### 👤 Account Deletion (`app/api/account/delete`)
+Handles permanent self-service account deletion from the mobile app.
+- **POST /api/account/delete**: Deletes the authenticated user account.
+  - **Auth**: Requires `Authorization: Bearer <supabase_jwt>`.
+  - **Body**: Optional JSON like `{"reason": "..."}`.
+  - **Logic**:
+    1. Validates `DELETED_USER_ID` from the server environment.
+    2. Reassigns the user’s `orders.user_id` to that placeholder account.
+    3. Clears order delivery PII (`delivery_address`, `delivery_lat`, `delivery_lng`, `location`).
+    4. Deletes `profiles`, `addresses`, `fcm_tokens`, and `user_notifications` rows linked to the user.
+    5. Deletes the Supabase Auth user last using `supabase.auth.admin.deleteUser(...)`.
+  - **Response**: `204 No Content` on success.
+
 ### 🛒 Orders (`app/api/orders`)
 Handles order creation and history.
 - **POST /api/orders**:
@@ -98,6 +111,13 @@ Set your base URL and API Key in your frontend environment.
 ```javascript
 const BASE_URL = "https://your-domain.com/api";
 const API_KEY = "your_secret_api_key";
+```
+
+Server-only environment variables also include:
+```env
+NEXT_PUBLIC_SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+DELETED_USER_ID=... # UUID of a real placeholder Supabase Auth user, e.g. deleted@manchi.ng
 ```
 
 ### Step 2: Global Headers
