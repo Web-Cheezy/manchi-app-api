@@ -20,6 +20,16 @@ function isMissingRelationOrColumn(error: unknown): boolean {
   );
 }
 
+function isAuthDeleteDependencyError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const message = 'message' in error ? String((error as { message?: unknown }).message ?? '').toLowerCase() : '';
+  const code = 'code' in error ? String((error as { code?: unknown }).code ?? '').toLowerCase() : '';
+  const status = 'status' in error ? Number((error as { status?: unknown }).status) : NaN;
+
+  return status === 500 && code === 'unexpected_failure' && message.includes('database error deleting user');
+}
+
 async function deleteOptionalRows(table: string, userId: string) {
   const { error } = await supabase.from(table).delete().eq('user_id', userId);
 
@@ -116,7 +126,18 @@ export async function POST(req: NextRequest) {
     await deleteOptionalRows('fcm_tokens', auth.user.id);
     await deleteOptionalRows('user_notifications', auth.user.id);
 
-    const { error: deleteAuthError } = await supabase.auth.admin.deleteUser(auth.user.id);
+    let { error: deleteAuthError } = await supabase.auth.admin.deleteUser(auth.user.id);
+
+    if (deleteAuthError && isAuthDeleteDependencyError(deleteAuthError)) {
+      console.warn('Hard auth delete failed; retrying with soft delete to preserve remaining auth dependencies', {
+        userId: auth.user.id,
+        code: deleteAuthError.code,
+        status: deleteAuthError.status,
+      });
+
+      ({ error: deleteAuthError } = await supabase.auth.admin.deleteUser(auth.user.id, true));
+    }
+
     if (deleteAuthError) throw deleteAuthError;
 
     return new NextResponse(null, { status: 204 });
