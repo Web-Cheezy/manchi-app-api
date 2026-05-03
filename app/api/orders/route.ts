@@ -132,8 +132,8 @@ async function runFoodsQuery(foodIds: number[], withJoins: boolean, includePrice
 
 async function runSidesQuery(sideIds: number[], withJoins: boolean, includePrice: boolean) {
   const selectBase = includePrice
-    ? 'id,price,status,availability_status,availability,is_available'
-    : 'id,status,availability_status,availability,is_available';
+    ? 'id,price'
+    : 'id';
 
   if (withJoins) {
     return await supabase
