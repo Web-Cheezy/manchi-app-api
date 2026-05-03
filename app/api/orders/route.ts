@@ -178,6 +178,26 @@ async function fetchSidesForValidation(sideIds: number[]) {
   return { data, error };
 }
 
+async function getTransportPriceForLga(lga: string): Promise<number> {
+  const cleanedLga = lga.trim();
+  if (!cleanedLga || cleanedLga.length > 120) {
+    return 3500;
+  }
+
+  const { data, error } = await supabase
+    .from('transport_prices')
+    .select('price')
+    .eq('lga', cleanedLga)
+    .maybeSingle();
+
+  if (error || !data) {
+    return 3500;
+  }
+
+  const price = Number(data.price);
+  return Number.isFinite(price) && price >= 0 ? Math.round(price) : 3500;
+}
+
 export async function GET(req: NextRequest) {
   const auth = await requireAuthenticatedUser(req);
   if (!auth.ok) return auth.response;
@@ -216,10 +236,29 @@ export async function POST(req: NextRequest) {
       location,
       items,
       delivery_method,
+      deliveryMethod,
+      lga,
+      delivery_lga,
+      deliveryLga,
+      delivery_fee,
+      deliveryFee,
     } = body;
 
     const resolvedTotalAmount = total_amount ?? totalAmount;
     const resolvedDeliveryAddress = delivery_address ?? deliveryAddress;
+    const resolvedDeliveryMethod =
+      typeof (delivery_method ?? deliveryMethod) === 'string' && String(delivery_method ?? deliveryMethod).trim()
+        ? String(delivery_method ?? deliveryMethod).trim().toLowerCase()
+        : 'delivery';
+    const resolvedDeliveryLga =
+      typeof (delivery_lga ?? deliveryLga ?? lga) === 'string' && String(delivery_lga ?? deliveryLga ?? lga).trim()
+        ? String(delivery_lga ?? deliveryLga ?? lga).trim()
+        : null;
+    const clientDeliveryFeeRaw = delivery_fee ?? deliveryFee;
+    const clientDeliveryFee =
+      clientDeliveryFeeRaw !== undefined && clientDeliveryFeeRaw !== null && clientDeliveryFeeRaw !== ''
+        ? Number(clientDeliveryFeeRaw)
+        : null;
     
     // Normalize location to ensure it matches Admin configuration (e.g. "Chasemall" vs full address)
     const normalizedLocation = normalizeLocation(location);
@@ -337,7 +376,8 @@ export async function POST(req: NextRequest) {
       if (Number.isFinite(id)) sideById.set(id, record);
     }
 
-    let computedTotal = 0;
+    let computedItemsTotal = 0;
+    let computedOptionsTotal = 0;
     let canComputeTotal = true;
 
     for (const item of parsedItems) {
@@ -358,7 +398,7 @@ export async function POST(req: NextRequest) {
       if (!Number.isFinite(price) || price < 0) {
         canComputeTotal = false;
       } else {
-        computedTotal += price * item.quantity;
+        computedItemsTotal += price * item.quantity;
       }
 
       for (const option of item.options) {
@@ -376,18 +416,61 @@ export async function POST(req: NextRequest) {
         if (!Number.isFinite(optionPrice) || optionPrice < 0) {
           canComputeTotal = false;
         } else {
-          computedTotal += optionPrice * option.quantity * item.quantity;
+          computedOptionsTotal += optionPrice * option.quantity * item.quantity;
         }
       }
     }
 
     const vatNumber = Number(vat ?? 0);
-    const expectedTotal = canComputeTotal ? computedTotal + (Number.isFinite(vatNumber) ? vatNumber : 0) : null;
+    let computedDeliveryFee = 0;
+    let deliveryFeeSource: 'pickup' | 'transport_prices' | 'client' | 'missing' = 'pickup';
+
+    if (resolvedDeliveryMethod !== 'pickup') {
+      if (resolvedDeliveryLga) {
+        computedDeliveryFee = await getTransportPriceForLga(resolvedDeliveryLga);
+        deliveryFeeSource = 'transport_prices';
+      } else if (clientDeliveryFee !== null && Number.isFinite(clientDeliveryFee) && clientDeliveryFee >= 0) {
+        computedDeliveryFee = clientDeliveryFee;
+        deliveryFeeSource = 'client';
+      } else {
+        deliveryFeeSource = 'missing';
+        canComputeTotal = false;
+      }
+    }
+
+    const expectedTotal = canComputeTotal
+      ? computedItemsTotal + computedOptionsTotal + computedDeliveryFee + (Number.isFinite(vatNumber) ? vatNumber : 0)
+      : null;
     if (expectedTotal !== null && Number.isFinite(expectedTotal) && expectedTotal > 0) {
       const difference = Math.abs(totalNumber - expectedTotal);
       if (difference > 0.01) {
+        console.warn('Order total mismatch', {
+          userId: auth.user.id,
+          deliveryMethod: resolvedDeliveryMethod,
+          deliveryLga: resolvedDeliveryLga,
+          deliveryFeeSource,
+          clientTotalAmount: totalNumber,
+          computedItemsTotal,
+          computedOptionsTotal,
+          computedDeliveryFee,
+          vat: Number.isFinite(vatNumber) ? vatNumber : 0,
+          expectedTotal,
+          difference,
+        });
         return NextResponse.json({ error: 'Invalid total_amount' }, { status: 400 });
       }
+    } else if (!canComputeTotal) {
+      console.warn('Order total validation skipped', {
+        userId: auth.user.id,
+        deliveryMethod: resolvedDeliveryMethod,
+        deliveryLga: resolvedDeliveryLga,
+        deliveryFeeSource,
+        clientTotalAmount: totalNumber,
+        computedItemsTotal,
+        computedOptionsTotal,
+        computedDeliveryFee,
+        vat: Number.isFinite(vatNumber) ? vatNumber : 0,
+      });
     }
 
     // 1. Create the Order
@@ -401,7 +484,7 @@ export async function POST(req: NextRequest) {
         delivery_address: resolvedDeliveryAddress,
         location: normalizedLocation,
         items,
-        delivery_method,
+        delivery_method: resolvedDeliveryMethod,
       }])
       .select()
       .single();
