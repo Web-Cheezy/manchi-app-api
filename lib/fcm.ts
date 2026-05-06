@@ -110,6 +110,9 @@ async function sendToTokens(tokens: string[], payload: FcmPayload): Promise<{ re
 /** Send to a specific user's registered devices. */
 export async function sendToUser(userId: string, payload: FcmPayload): Promise<FcmSendResult> {
   const tokens = await getFcmTokensByUserId(userId);
+  if (tokens.length === 0) {
+    console.info('FCM send skipped: no tokens for user', { userId });
+  }
   const { result } = await sendToTokens(tokens, payload);
   return result;
 }

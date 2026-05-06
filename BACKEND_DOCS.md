@@ -1,169 +1,224 @@
-# Backend Documentation & Integration Guide
+# Backend Documentation & Integration Guide (Current Implementation)
 
-## 1. Architecture Overview
-
-This backend is built using **Next.js 14+ (App Router)** and **Supabase**. It functions as a collection of serverless API endpoints that handle data processing, authentication, and database interactions.
-
-### Core Technologies
-- **Framework**: Next.js (App Router)
-- **Database**: PostgreSQL (via Supabase)
-- **Authentication**: Supabase Auth (JWT) + API Key Security
-- **Payment Processing**: Paystack
-- **Maps**: Google Maps API
+This document reflects the backend as it is currently implemented in this repository.
 
 ---
 
-## 2. Authentication & Security
+## 1) Architecture Overview
 
-The API uses two layers of security:
+This backend is built using **Next.js (App Router)** and **Supabase**. It functions as a set of serverless API routes under `app/api/*`.
 
-### A. API Key Protection (`validateRequest`)
-Every request to the API is intercepted by a helper function `validateRequest` in `lib/auth.ts`.
-- **Mechanism**: Checks for a custom header `x-api-key`.
-- **Reason**: Prevents unauthorized external usage of your API.
-- **Implementation**:
-  ```typescript
-  // lib/auth.ts
-  export function validateRequest(req: NextRequest) {
-    const apiKey = req.headers.get('x-api-key');
-    if (apiKey !== process.env.API_SECRET_KEY) return false;
-    return true;
-  }
-  ```
+### Core technologies
 
-### B. User Authentication (Supabase Auth)
-For user-specific data (like profile, orders), the API expects an **Authorization Bearer Token** (JWT) or a `userId` to verify identity against Supabase.
+- Framework: Next.js (App Router)
+- Database: Supabase Postgres
+- Auth: Supabase Auth (JWT Bearer tokens)
+- Payments: Paystack
+- Push notifications: Firebase Admin SDK (FCM)
+- Optional utilities: Google Maps Geocoding proxy (only if enabled)
 
 ---
 
-## 3. Database Integration (`lib/supabase.ts`)
+## 2) Authentication & Authorization
 
-We use the `@supabase/supabase-js` client to interact with the database.
+### 2.1 JWT authentication (primary)
 
-- **Initialization**:
-  A single instance is created in `lib/supabase.ts` using environment variables.
-  ```typescript
-  import { createClient } from '@supabase/supabase-js';
-  export const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-  ```
-  *Note: We use the `SERVICE_ROLE_KEY` on the backend to bypass Row Level Security (RLS) when necessary, allowing the API to act with admin privileges.*
+Most user-specific routes require:
 
----
+- `Authorization: Bearer <supabase_access_token>`
 
-## 4. API Routes Breakdown
+The token is validated by Supabase (`supabase.auth.getUser(token)`): [auth.ts](file:///c:/Users/ronni/Desktop/manchicodes/lib/auth.ts#L57-L84)
 
-The API is organized by resource in the `app/api/` directory.
+Common responses:
 
-### 📍 Addresses (`app/api/addresses`)
-Handles user address management.
-- **GET /api/addresses?userId={id}**: Fetches all addresses for a user.
-- **POST /api/addresses**: Creates a new address.
-  - **Logic**: Accepts app-specific fields (`lga`, `area`, `street`, `house_number`) and saves them directly.
-  - **Smart Defaults**: If `is_default` is true, it automatically sets all other addresses for that user to `false`.
-- **PUT /api/addresses/[id]**: Updates an address.
-- **DELETE /api/addresses/[id]**: Removes an address.
+- `401 Unauthorized` → missing/invalid/expired JWT
+- `403 Forbidden` → valid JWT but role/location not permitted
 
-### 👤 Account Deletion (`app/api/account/delete`)
-Handles permanent self-service account deletion from the mobile app.
-- **POST /api/account/delete**: Deletes the authenticated user account.
-  - **Auth**: Requires `Authorization: Bearer <supabase_jwt>`.
-  - **Body**: Optional JSON like `{"reason": "..."}`.
-  - **Logic**:
-    1. Validates `DELETED_USER_ID` from the server environment.
-    2. Reassigns the user’s `orders.user_id` to that placeholder account.
-    3. Clears order delivery PII (`delivery_address`, `delivery_lat`, `delivery_lng`, `location`).
-    4. Deletes `profiles`, `addresses`, `fcm_tokens`, and `user_notifications` rows linked to the user.
-    5. Deletes the Supabase Auth user last using `supabase.auth.admin.deleteUser(...)`.
-  - **Response**: `204 No Content` on success.
+### 2.2 Staff-only authorization (admin dashboard)
 
-### 🛒 Orders (`app/api/orders`)
-Handles order creation and history.
-- **POST /api/orders**:
-  1. Receives order details + items list.
-  2. Creates a record in `orders` table.
-  3. Uses the returned `order_id` to insert multiple rows into `order_items`.
-  - *Key Feature*: Uses JSONB or relational tables to store complex item data.
+Staff routes require:
 
-### 🔐 Auth (`app/api/auth/*`)
-Wrappers around Supabase Auth.
-- **/login**: `supabase.auth.signInWithPassword`
-- **/signup**: `supabase.auth.signUp`
-- **/otp** & **/verify**: Handles passwordless/email verification flows.
+1) a valid JWT, and
+2) `profiles.role` in `admin` or `super_admin`
 
-### 💳 Payments (`app/api/paystack/*`)
-- **/initialize**: Calls Paystack API to generate a checkout URL.
-- **/verify**: Confirms payment status and updates the database.
+Implementation: [requireStaffUser](file:///c:/Users/ronni/Desktop/manchicodes/lib/auth.ts#L20-L46)
 
-### 🚚 Transport Prices (`app/api/transport_prices`)
-- **GET /api/transport_prices?lga={LGA}**: Fetches the delivery price for a specific LGA.
-  - **Success (200)**: `{"price": 2500}`
-  - **Default (200)**: `{"price": 3500}` (if LGA is not found in the database)
-  - *Note*: Handles special characters like `/` automatically.
+Location scoping:
+
+- `admin` users can only update orders that match their `profiles.location` (unless their location is `All`)
+- `super_admin` can update any order
+
+Enforced in: [orders/[id] PATCH](file:///c:/Users/ronni/Desktop/manchicodes/app/api/orders/%5Bid%5D/route.ts#L45-L60)
 
 ---
 
-## 5. How to Implement Your Own Backend Integration
+## 3) Required Environment Variables (Server)
 
-If you are building a website (React, Vue, etc.) or Mobile App (Flutter, React Native) to consume this API, follow these steps:
+These must be configured in Vercel (and locally if you run the backend locally):
 
-### Step 1: Base Configuration
-Set your base URL and API Key in your frontend environment.
-```javascript
-const BASE_URL = "https://your-domain.com/api";
-const API_KEY = "your_secret_api_key";
-```
-
-Server-only environment variables also include:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
-DELETED_USER_ID=... # UUID of a real placeholder Supabase Auth user, e.g. deleted@manchi.ng
+PAYSTACK_SECRET_KEY=...
+FIREBASE_SERVICE_ACCOUNT_JSON=... # Firebase service account JSON (stringified)
+DELETED_USER_ID=...               # UUID of a real placeholder Supabase Auth user
 ```
 
-### Step 2: Global Headers
-Every HTTP request **MUST** include these headers:
+Quick check:
+
+- `GET /api/health` reports configuration + connectivity: [health route](file:///c:/Users/ronni/Desktop/manchicodes/app/api/health/route.ts)
+
+---
+
+## 4) Database Integration (Supabase)
+
+The backend uses `@supabase/supabase-js` with the **service role** key on the server. This allows the backend to perform privileged operations (and not be blocked by RLS).
+
+Client initialization: [supabase.ts](file:///c:/Users/ronni/Desktop/manchicodes/lib/supabase.ts)
+
+---
+
+## 5) API Routes (Current)
+
+All routes live under: [app/api](file:///c:/Users/ronni/Desktop/manchicodes/app/api)
+
+### 5.1 System health
+
+- `GET /api/health` → env checks + Supabase + Paystack + FCM parseability
+
+### 5.2 Addresses
+
+Resource: `app/api/addresses/*`
+
+- `GET /api/addresses` (JWT required)
+- `POST /api/addresses` (JWT required)
+- `PUT /api/addresses/:id` (JWT required)
+- `DELETE /api/addresses/:id` (JWT required)
+
+### 5.3 Orders (customer)
+
+- `POST /api/orders` (JWT required)
+  - Creates an order and inserts `order_items`.
+  - Sends an “order placed” push notification (if the user has tokens and FCM is configured).
+  - Supports food and side line-items.
+
+Items model (summary):
+
+- each item must include either `food_id` (for food) or `side_id` (for side)
+- `options` are treated as selected sides/add-ons
+
+### 5.4 Orders (staff/admin)
+
+- `PATCH /api/orders/:id` (staff-only JWT required)
+  - Updates `orders.status`
+  - If status changed and `orders.user_id` exists, sends a status-change push
+  - Logs a structured push result to Vercel logs (`Order status push result`)
+
+Route: [orders/[id] PATCH](file:///c:/Users/ronni/Desktop/manchicodes/app/api/orders/%5Bid%5D/route.ts)
+
+### 5.5 Payments (Paystack)
+
+Routes:
+
+- `POST /api/paystack/initialize` (JWT required)
+- `GET /api/paystack/verify?reference=...` (JWT required)
+
+### 5.6 Notifications (in-app inbox)
+
+Routes (JWT required):
+
+- `GET /api/notifications` → list
+- `POST /api/notifications` → mark all read
+- `PATCH /api/notifications/:id` → mark one read
+
+### 5.7 Push notifications (FCM)
+
+Token registration (JWT required):
+
+- `POST /api/fcm/register` → stores device token in `public.fcm_tokens`: [fcm/register](file:///c:/Users/ronni/Desktop/manchicodes/app/api/fcm/register/route.ts)
+
+Optional (JWT required):
+
+- `POST /api/fcm/unregister` → deletes a token for this user: [fcm/unregister](file:///c:/Users/ronni/Desktop/manchicodes/app/api/fcm/unregister/route.ts)
+
+Broadcast (“campaign”) (staff-only JWT required):
+
+- `POST /api/fcm/broadcast` → sends to all tokens and stores a broadcast notification row: [fcm/broadcast](file:///c:/Users/ronni/Desktop/manchicodes/app/api/fcm/broadcast/route.ts)
+
+FCM implementation + message mapping:
+
+- [fcm.ts](file:///c:/Users/ronni/Desktop/manchicodes/lib/fcm.ts)
+
+### 5.8 Account deletion
+
+- `POST /api/account/delete` (JWT required)
+
+Key behaviors:
+
+- Requires server env `DELETED_USER_ID` (placeholder Auth user)
+- Reassigns orders to the placeholder user and clears delivery PII
+- Deletes related rows (profiles, addresses, and optionally fcm_tokens + user_notifications)
+- Deletes the Supabase Auth user last (falls back to soft delete if hard delete fails)
+
+Route: [account delete](file:///c:/Users/ronni/Desktop/manchicodes/app/api/account/delete/route.ts)
+
+### 5.9 Transport prices
+
+- `GET /api/transport_prices?lga=...` (JWT required)
+
+### 5.10 Maps (optional)
+
+- `GET /api/maps/geocode?address=...`
+- `POST /api/maps/geocode` with `{ address }` or `{ lat, lng }`
+
+This route requires `GOOGLE_MAPS_API_KEY` only if you actively use it: [maps/geocode](file:///c:/Users/ronni/Desktop/manchicodes/app/api/maps/geocode/route.ts)
+
+---
+
+## 6) How Clients Should Call This API
+
+### Base URL
+
+Use your deployed domain (no `/api` suffix in the base):
+
+```text
+https://<your-backend-domain>
+```
+
+### Global headers (typical)
+
 ```json
 {
   "Content-Type": "application/json",
-  "x-api-key": "your_secret_api_key"
+  "Authorization": "Bearer <supabase_access_token>"
 }
 ```
 
-### Step 3: Making Requests (Example: Fetching Addresses)
+Staff routes use the same header, but the token must belong to a user with `profiles.role` set to `admin` or `super_admin`.
 
-#### Javascript (Fetch API)
-```javascript
-async function getAddresses(userId) {
-  const response = await fetch(`${BASE_URL}/addresses?userId=${userId}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY
-    }
-  });
-  return response.json();
-}
-```
+### Error format
 
-#### Flutter (Dart/Http)
-```dart
-Future<List<Address>> getAddresses(String userId) async {
-  final response = await http.get(
-    Uri.parse('$baseUrl/addresses?userId=$userId'),
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-    },
-  );
-  // parse response...
-}
-```
+Errors follow the standard shape:
 
-### Step 4: Handling Errors
-The API returns consistent error formats:
-- **Success (200/201)**: Returns JSON data.
-- **User Error (400)**: `{"error": "Missing required fields"}`
-- **Auth Error (401)**: `{"error": "Unauthorized: Invalid API Key"}`
-- **Server Error (500)**: `{"error": "Internal Server Error"}`
+- `{ "error": "..." }` with appropriate status codes (`400/401/403/404/422/500`)
 
-Always wrap your API calls in `try/catch` blocks to handle these gracefully.
+---
+
+## 7) Operational Notes (Vercel Logs)
+
+When staff updates order status, the backend logs:
+
+- `Order status push result { configured, attempted, success, failure, invalid_tokens_removed, notification_saved, ... }`
+
+If pushes fail:
+
+- `[FCM] Not configured; skipping send.` → missing/invalid `FIREBASE_SERVICE_ACCOUNT_JSON`
+- `messaging/registration-token-not-registered` → token is stale (user needs to open the app to re-register)
+
+---
+
+## 8) Reference Manual
+
+For the day-to-day operational manual (campaigns, Vercel logs, workflows), see:
+
+- [OPERATIONS_MANUAL.md](file:///c:/Users/ronni/Desktop/manchicodes/OPERATIONS_MANUAL.md)
