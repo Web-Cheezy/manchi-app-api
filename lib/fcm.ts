@@ -5,7 +5,7 @@
  */
 
 import * as admin from 'firebase-admin';
-import { getFcmTokensByUserId, getAllFcmTokens, insertUserNotification } from './db';
+import { deleteFcmTokens, getAllFcmTokens, getFcmTokensByUserId, insertUserNotification } from './db';
 
 let app: admin.app.App | null = null;
 
@@ -29,12 +29,34 @@ export interface FcmPayload {
   data?: Record<string, string>;
 }
 
-async function sendToTokens(tokens: string[], payload: FcmPayload): Promise<void> {
-  if (tokens.length === 0) return;
+export type FcmSendResult = {
+  configured: boolean;
+  attempted: number;
+  success: number;
+  failure: number;
+  invalid_tokens_removed: number;
+  notification_saved?: boolean;
+};
+
+function isInvalidRegistrationTokenError(error: unknown): boolean {
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
+  return code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token';
+}
+
+async function sendToTokens(tokens: string[], payload: FcmPayload): Promise<{ result: FcmSendResult; invalidTokens: string[] }> {
+  if (tokens.length === 0) {
+    return {
+      result: { configured: true, attempted: 0, success: 0, failure: 0, invalid_tokens_removed: 0 },
+      invalidTokens: [],
+    };
+  }
   const messaging = getMessaging();
   if (!messaging) {
     console.warn('[FCM] Not configured; skipping send.');
-    return;
+    return {
+      result: { configured: false, attempted: tokens.length, success: 0, failure: tokens.length, invalid_tokens_removed: 0 },
+      invalidTokens: [],
+    };
   }
   const message: admin.messaging.MulticastMessage = {
     tokens,
@@ -45,38 +67,76 @@ async function sendToTokens(tokens: string[], payload: FcmPayload): Promise<void
   };
   try {
     const res = await messaging.sendEachForMulticast(message);
+    const invalidTokens: string[] = [];
+    for (let i = 0; i < res.responses.length; i++) {
+      const r = res.responses[i];
+      if (!r.success && r.error && isInvalidRegistrationTokenError(r.error)) {
+        invalidTokens.push(tokens[i]);
+      }
+    }
+
+    let removed = 0;
+    if (invalidTokens.length > 0) {
+      try {
+        await deleteFcmTokens(invalidTokens);
+        removed = invalidTokens.length;
+      } catch (e) {
+        console.error('[FCM] Failed to remove invalid tokens:', e);
+      }
+    }
+
     if (res.failureCount > 0) {
       console.warn('[FCM] Some sends failed:', res.responses.filter((r) => !r.success));
     }
+    return {
+      result: {
+        configured: true,
+        attempted: tokens.length,
+        success: res.successCount,
+        failure: res.failureCount,
+        invalid_tokens_removed: removed,
+      },
+      invalidTokens,
+    };
   } catch (e) {
     console.error('[FCM] Send error:', e);
+    return {
+      result: { configured: true, attempted: tokens.length, success: 0, failure: tokens.length, invalid_tokens_removed: 0 },
+      invalidTokens: [],
+    };
   }
 }
 
 /** Send to a specific user's registered devices. */
-export async function sendToUser(userId: string, payload: FcmPayload): Promise<void> {
+export async function sendToUser(userId: string, payload: FcmPayload): Promise<FcmSendResult> {
   const tokens = await getFcmTokensByUserId(userId);
-  await sendToTokens(tokens, payload);
+  const { result } = await sendToTokens(tokens, payload);
+  return result;
 }
 
 /** Send to all registered devices (admin broadcast). */
-export async function sendToAll(payload: FcmPayload): Promise<void> {
+export async function sendToAll(payload: FcmPayload): Promise<FcmSendResult> {
   const tokens = await getAllFcmTokens();
-  await sendToTokens(tokens, payload);
+  const { result } = await sendToTokens(tokens, payload);
+  return result;
 }
 
 /** Notify customer that their order was placed. */
-export async function notifyOrderCreated(userId: string, orderId: number): Promise<void> {
+export async function notifyOrderCreated(userId: string, orderId: number): Promise<FcmSendResult> {
   const title = 'Order placed';
   const body = 'Thank you for ordering with us. Your order is now being processed.';
-  await sendToUser(userId, {
+  const result = await sendToUser(userId, {
     title,
     body,
     data: { order_id: String(orderId), route: 'order_history', type: 'order_placed' },
   });
-  await insertUserNotification(userId, title, body, 'order_placed', orderId).catch((e) =>
-    console.error('[FCM] Save notification:', e)
-  );
+  let notificationSaved = false;
+  await insertUserNotification(userId, title, body, 'order_placed', orderId)
+    .then(() => {
+      notificationSaved = true;
+    })
+    .catch((e) => console.error('[FCM] Save notification:', e));
+  return { ...result, notification_saved: notificationSaved };
 }
 
 const statusMessages: Record<string, { title: string; body: string }> = {
@@ -111,11 +171,13 @@ export async function notifyOrderStatusChange(
   userId: string,
   orderId: number,
   status: string
-): Promise<void> {
+): Promise<FcmSendResult> {
   const message = statusMessages[status];
-  if (!message) return;
+  if (!message) {
+    return { configured: true, attempted: 0, success: 0, failure: 0, invalid_tokens_removed: 0, notification_saved: false };
+  }
 
-  await sendToUser(userId, {
+  const result = await sendToUser(userId, {
     title: message.title,
     body: message.body,
     data: {
@@ -125,11 +187,11 @@ export async function notifyOrderStatusChange(
       route: 'order_history',
     },
   });
-  await insertUserNotification(
-    userId,
-    message.title,
-    message.body,
-    'order_status_changed',
-    orderId
-  ).catch((e) => console.error('[FCM] Save notification:', e));
+  let notificationSaved = false;
+  await insertUserNotification(userId, message.title, message.body, 'order_status_changed', orderId)
+    .then(() => {
+      notificationSaved = true;
+    })
+    .catch((e) => console.error('[FCM] Save notification:', e));
+  return { ...result, notification_saved: notificationSaved };
 }

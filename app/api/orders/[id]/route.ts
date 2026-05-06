@@ -71,9 +71,13 @@ export async function PATCH(
     // Notify customer on status change (pending→preparing, preparing→delivered, or cancelled)
     const prev = existing.status as string;
     if (existing.user_id && prev !== status) {
-      notifyOrderStatusChange(existing.user_id, existing.id, status).catch((e) =>
-        console.error('FCM order status notify:', e)
-      );
+      const fcmResult = await notifyOrderStatusChange(existing.user_id, existing.id, status);
+      console.info('Order status push result', {
+        orderId: existing.id,
+        userId: existing.user_id,
+        status,
+        ...fcmResult,
+      });
     }
 
     return NextResponse.json(updated);

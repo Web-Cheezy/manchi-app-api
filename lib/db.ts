@@ -71,13 +71,21 @@ export async function getUserTransactions(email: string) {
 
 // --- FCM tokens (for push notifications) ---
 
-export async function upsertFcmToken(fcmToken: string, userId?: string | null) {
+export async function upsertFcmToken(
+  fcmToken: string,
+  userId?: string | null,
+  details?: { device_id?: string | null; platform?: string | null; app_version?: string | null }
+) {
   const { data, error } = await supabase
     .from('fcm_tokens')
     .upsert(
       {
         fcm_token: fcmToken,
         user_id: userId ?? null,
+        device_id: details?.device_id ?? null,
+        platform: details?.platform ?? null,
+        app_version: details?.app_version ?? null,
+        last_seen_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'fcm_token' }
@@ -87,6 +95,19 @@ export async function upsertFcmToken(fcmToken: string, userId?: string | null) {
 
   if (error) handleSupabaseError(error);
   return data;
+}
+
+export async function deleteFcmToken(fcmToken: string, userId?: string | null) {
+  let query = supabase.from('fcm_tokens').delete().eq('fcm_token', fcmToken);
+  if (userId) query = query.eq('user_id', userId);
+  const { error } = await query;
+  if (error) handleSupabaseError(error);
+}
+
+export async function deleteFcmTokens(tokens: string[]) {
+  if (!Array.isArray(tokens) || tokens.length === 0) return;
+  const { error } = await supabase.from('fcm_tokens').delete().in('fcm_token', tokens);
+  if (error) handleSupabaseError(error);
 }
 
 export async function getFcmTokensByUserId(userId: string): Promise<string[]> {
