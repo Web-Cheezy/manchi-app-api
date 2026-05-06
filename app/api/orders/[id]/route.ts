@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { requireStaffUser } from '@/lib/auth';
 import { notifyOrderStatusChange } from '@/lib/fcm';
+import { normalizeLocation } from '@/lib/utils';
 
 export async function PATCH(
   req: NextRequest,
@@ -33,12 +34,29 @@ export async function PATCH(
     // Get current order to read user_id and previous status
     const { data: existing, error: fetchError } = await supabase
       .from('orders')
-      .select('id, user_id, status')
+      .select('id, user_id, status, location')
       .eq('id', id)
       .single();
 
     if (fetchError || !existing) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    }
+
+    if (staff.role === 'admin') {
+      const profileLocation = staff.location;
+      if (!profileLocation) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+
+      const normalizedProfileLocation = profileLocation === 'All' ? 'All' : normalizeLocation(profileLocation);
+      const normalizedOrderLocation =
+        typeof existing.location === 'string' && existing.location.trim()
+          ? normalizeLocation(existing.location)
+          : null;
+
+      if (normalizedProfileLocation !== 'All' && normalizedOrderLocation !== normalizedProfileLocation) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
     }
 
     const { data: updated, error } = await supabase

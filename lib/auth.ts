@@ -18,7 +18,7 @@ const STAFF_ROLES = new Set(['admin', 'super_admin']);
  * Uses JWT + profiles.role; customers get 403 even with a valid token.
  */
 export async function requireStaffUser(req: NextRequest): Promise<
-  | { ok: true; user: { id: string; email: string | null }; role: string }
+  | { ok: true; user: { id: string; email: string | null }; role: string; location: string | null }
   | { ok: false; response: NextResponse }
 > {
   const auth = await requireAuthenticatedUser(req);
@@ -27,7 +27,7 @@ export async function requireStaffUser(req: NextRequest): Promise<
   assertSupabaseConfigured();
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, location')
     .eq('id', auth.user.id)
     .maybeSingle();
 
@@ -41,7 +41,8 @@ export async function requireStaffUser(req: NextRequest): Promise<
     return { ok: false, response: forbiddenResponse() };
   }
 
-  return { ok: true, user: auth.user, role };
+  const location = typeof profile?.location === 'string' ? profile.location : null;
+  return { ok: true, user: auth.user, role, location };
 }
 
 export function getBearerToken(req: NextRequest): string | null {
