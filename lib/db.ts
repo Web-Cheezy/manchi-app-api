@@ -71,27 +71,44 @@ export async function getUserTransactions(email: string) {
 
 // --- FCM tokens (for push notifications) ---
 
+function isSchemaMismatch(error: unknown): boolean {
+  const msg = String((error as { message?: unknown } | null)?.message ?? '').toLowerCase();
+  return msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('column') || msg.includes('relation');
+}
+
 export async function upsertFcmToken(
   fcmToken: string,
   userId?: string | null,
   details?: { device_id?: string | null; platform?: string | null; app_version?: string | null }
 ) {
-  const { data, error } = await supabase
+  const now = new Date().toISOString();
+  const basePayload = {
+    fcm_token: fcmToken,
+    user_id: userId ?? null,
+    updated_at: now,
+  };
+
+  const extendedPayload = {
+    ...basePayload,
+    device_id: details?.device_id ?? null,
+    platform: details?.platform ?? null,
+    app_version: details?.app_version ?? null,
+    last_seen_at: now,
+  };
+
+  let { data, error } = await supabase
     .from('fcm_tokens')
-    .upsert(
-      {
-        fcm_token: fcmToken,
-        user_id: userId ?? null,
-        device_id: details?.device_id ?? null,
-        platform: details?.platform ?? null,
-        app_version: details?.app_version ?? null,
-        last_seen_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'fcm_token' }
-    )
+    .upsert(extendedPayload, { onConflict: 'fcm_token' })
     .select()
     .single();
+
+  if (error && isSchemaMismatch(error)) {
+    ({ data, error } = await supabase
+      .from('fcm_tokens')
+      .upsert(basePayload, { onConflict: 'fcm_token' })
+      .select()
+      .single());
+  }
 
   if (error) handleSupabaseError(error);
   return data;

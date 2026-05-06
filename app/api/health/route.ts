@@ -5,6 +5,7 @@ export async function GET() {
   const checks = {
     paystack: { status: 'unknown', message: '' },
     database: { status: 'unknown', message: '' },
+    fcm: { status: 'unknown', message: '' },
     env: { status: 'unknown', message: '' },
   };
 
@@ -12,9 +13,10 @@ export async function GET() {
   const hasPaystack = !!process.env.PAYSTACK_SECRET_KEY;
   const hasSupabaseUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
   const hasSupabaseKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const hasGoogleMapsKey = !!process.env.GOOGLE_MAPS_API_KEY;
+  const hasFirebaseJson = !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const firebaseConfigured = hasFirebaseJson;
 
-  if (hasPaystack && hasSupabaseUrl && hasSupabaseKey && hasGoogleMapsKey) {
+  if (hasPaystack && hasSupabaseUrl && hasSupabaseKey && firebaseConfigured) {
     checks.env.status = 'healthy';
     checks.env.message = 'All variables configured';
   } else {
@@ -23,8 +25,25 @@ export async function GET() {
       !hasPaystack ? 'PAYSTACK_SECRET_KEY' : '',
       !hasSupabaseUrl ? 'NEXT_PUBLIC_SUPABASE_URL' : '',
       !hasSupabaseKey ? 'SUPABASE_SERVICE_ROLE_KEY' : '',
-      !hasGoogleMapsKey ? 'GOOGLE_MAPS_API_KEY' : '',
+      !firebaseConfigured ? 'FIREBASE_SERVICE_ACCOUNT_JSON' : '',
     ].filter(Boolean).join(', ')}`;
+  }
+
+  // 1.5 Check Firebase JSON is parseable (best-effort)
+  try {
+    const json = hasFirebaseJson ? process.env.FIREBASE_SERVICE_ACCOUNT_JSON! : null;
+    if (!json) {
+      checks.fcm.status = 'unhealthy';
+      checks.fcm.message = 'Missing Firebase service account env';
+    } else {
+      const parsed = JSON.parse(json) as { project_id?: unknown; client_email?: unknown; private_key?: unknown };
+      const ok = !!parsed && !!parsed.project_id && !!parsed.client_email && !!parsed.private_key;
+      checks.fcm.status = ok ? 'healthy' : 'unhealthy';
+      checks.fcm.message = ok ? 'Firebase Admin configured' : 'Firebase service account missing required fields';
+    }
+  } catch (e: unknown) {
+    checks.fcm.status = 'unhealthy';
+    checks.fcm.message = e instanceof Error ? e.message : 'Firebase parse failed';
   }
 
   // 2. Check Database Connection
@@ -67,6 +86,7 @@ export async function GET() {
   const overallStatus = 
     checks.env.status === 'healthy' && 
     checks.database.status === 'healthy' && 
+    checks.fcm.status === 'healthy' &&
     (checks.paystack.status === 'healthy' || checks.paystack.status === 'degraded') // degraded is okay for network check
     ? 'healthy' : 'unhealthy';
 
