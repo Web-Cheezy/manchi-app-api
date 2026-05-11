@@ -11,8 +11,14 @@ let app: admin.app.App | null = null;
 
 function getServiceAccountEnv(): string | null {
   const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (json && json.trim()) return json;
   const legacy = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  console.info('[FCM] Env check', {
+    hasJson: !!json,
+    hasLegacy: !!legacy,
+    jsonLength: json ? json.length : 0,
+    legacyLength: legacy ? legacy.length : 0,
+  });
+  if (json && json.trim()) return json;
   if (legacy && legacy.trim()) return legacy;
   return null;
 }
