@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { fcmSelfTest } from '@/lib/fcm';
 
 export async function GET() {
   const checks = {
@@ -38,8 +39,14 @@ export async function GET() {
     } else {
       const parsed = JSON.parse(json) as { project_id?: unknown; client_email?: unknown; private_key?: unknown };
       const ok = !!parsed && !!parsed.project_id && !!parsed.client_email && !!parsed.private_key;
-      checks.fcm.status = ok ? 'healthy' : 'unhealthy';
-      checks.fcm.message = ok ? 'Firebase Admin configured' : 'Firebase service account missing required fields';
+      if (!ok) {
+        checks.fcm.status = 'unhealthy';
+        checks.fcm.message = 'Firebase service account missing required fields';
+      } else {
+        const oauth = await fcmSelfTest();
+        checks.fcm.status = oauth.ok ? 'healthy' : 'unhealthy';
+        checks.fcm.message = oauth.message;
+      }
     }
   } catch (e: unknown) {
     checks.fcm.status = 'unhealthy';

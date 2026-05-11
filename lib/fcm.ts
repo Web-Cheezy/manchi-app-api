@@ -9,17 +9,58 @@ import { deleteFcmTokens, getAllFcmTokens, getFcmTokensByUserId, insertUserNotif
 
 let app: admin.app.App | null = null;
 
+function isValidServiceAccount(value: unknown): value is admin.ServiceAccount & { project_id: string; client_email: string; private_key: string } {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.project_id === 'string' && typeof v.client_email === 'string' && typeof v.private_key === 'string';
+}
+
 function getMessaging(): admin.messaging.Messaging | null {
   if (app) return app.messaging();
   const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   if (!json) return null;
   try {
-    const cred = JSON.parse(json) as admin.ServiceAccount;
+    const credRaw = JSON.parse(json) as unknown;
+    if (!isValidServiceAccount(credRaw)) {
+      console.error('[FCM] Invalid FIREBASE_SERVICE_ACCOUNT_JSON: missing required fields');
+      return null;
+    }
+    const cred = credRaw as admin.ServiceAccount;
     app = admin.initializeApp({ credential: admin.credential.cert(cred) });
+    console.info('[FCM] Initialized', { project_id: credRaw.project_id, client_email: credRaw.client_email });
     return app.messaging();
   } catch (e) {
     console.error('[FCM] Invalid FIREBASE_SERVICE_ACCOUNT_JSON:', e);
     return null;
+  }
+}
+
+export async function fcmSelfTest(): Promise<{ ok: boolean; message: string }> {
+  const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!json) return { ok: false, message: 'Missing FIREBASE_SERVICE_ACCOUNT_JSON' };
+
+  let credRaw: unknown;
+  try {
+    credRaw = JSON.parse(json) as unknown;
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : 'Invalid JSON' };
+  }
+
+  if (!isValidServiceAccount(credRaw)) {
+    return { ok: false, message: 'Firebase service account missing required fields' };
+  }
+
+  try {
+    const credential = admin.credential.cert(credRaw as admin.ServiceAccount) as unknown as { getAccessToken?: () => Promise<unknown> };
+    if (typeof credential.getAccessToken !== 'function') {
+      return { ok: false, message: 'Firebase credential does not support access tokens' };
+    }
+    await credential.getAccessToken();
+    return { ok: true, message: 'Firebase OAuth access token OK' };
+  } catch (e) {
+    const message =
+      e && typeof e === 'object' && 'message' in e ? String((e as { message?: unknown }).message ?? 'OAuth error') : 'OAuth error';
+    return { ok: false, message };
   }
 }
 
