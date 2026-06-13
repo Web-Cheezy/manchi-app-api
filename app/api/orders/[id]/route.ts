@@ -1,8 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { requireStaffUser } from '@/lib/auth';
+import { forbiddenResponse, requireAuthenticatedUser, requireStaffUser } from '@/lib/auth';
 import { notifyOrderStatusChange } from '@/lib/fcm';
 import { normalizeLocation } from '@/lib/utils';
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await requireAuthenticatedUser(req);
+  if (!auth.ok) return auth.response;
+
+  try {
+    const { id } = await params;
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .eq('id', id)
+      .single();
+
+    if (error || !data) {
+      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+    }
+
+    if (data.user_id !== auth.user.id) {
+      return forbiddenResponse();
+    }
+
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error('Get order error:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
 
 export async function PATCH(
   req: NextRequest,

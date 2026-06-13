@@ -10,7 +10,11 @@ function decodeBase64Url(input: string): string | null {
   }
 }
 
-function getJwtRole(token: string): string | null {
+export function isSupabaseConfigured(): boolean {
+  return !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+}
+
+export function getJwtRole(token: string): string | null {
   const parts = token.split('.');
   if (parts.length < 2) return null;
   const payloadJson = decodeBase64Url(parts[1]);
@@ -23,18 +27,9 @@ function getJwtRole(token: string): string | null {
   }
 }
 
-export function isSupabaseConfigured(): boolean {
-  return !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
-}
-
 export function assertSupabaseConfigured(): void {
   if (!isSupabaseConfigured()) {
     throw new Error('Missing Supabase environment variables');
-  }
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  const role = getJwtRole(key);
-  if (role && role !== 'service_role') {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not a service_role key');
   }
 }
 

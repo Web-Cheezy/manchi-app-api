@@ -1,19 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { normalizeLocation } from '@/lib/utils';
+import {
+  decorateOptionGroupsForLocation,
+  filterAvailabilityRows,
+  resolveFoodStatus,
+  type UnknownRecord,
+} from '@/lib/availability';
+import { attachFoodPricing, fetchPublicOptionGroupsForFood } from '@/lib/foodPricing';
 
-export async function GET(_req: NextRequest) {
+/**
+ * GET /api/menu?location=Chasemall
+ * Aggregated menu: categories + foods with option_groups (names, sides, price_delta) and menu_price.
+ */
+export async function GET(req: NextRequest) {
+  const searchParams = req.nextUrl.searchParams;
+  const location = searchParams.get('location') ?? searchParams.get('store');
+  const preferredLocation = normalizeLocation(location);
+
   try {
-    // Assuming you have a 'menu_items' table
-    const { data, error } = await supabase
-      .from('menu_items')
-      .select('*')
-      .order('name');
+    const [{ data: categories, error: categoriesError }, { data: foodsRaw, error: foodsError }] = await Promise.all([
+      supabase.from('categories').select('*').order('id'),
+      supabase.from('foods').select('*,food_availability(*)').order('name'),
+    ]);
 
-    if (error) throw error;
+    if (categoriesError) throw categoriesError;
+    if (foodsError) throw foodsError;
 
-    return NextResponse.json({ menu: data });
+    const foods = await Promise.all(
+      (Array.isArray(foodsRaw) ? foodsRaw : []).map(async (food: unknown) => {
+        const foodRecord: UnknownRecord = typeof food === 'object' && food !== null ? (food as UnknownRecord) : {};
+        const filteredAvailability = filterAvailabilityRows(foodRecord['food_availability'], preferredLocation);
+        const status = resolveFoodStatus({ ...foodRecord, food_availability: filteredAvailability }, preferredLocation);
+        const foodId = Number(foodRecord['id']);
+        const optionGroupsRaw = Number.isFinite(foodId)
+          ? await fetchPublicOptionGroupsForFood(supabase, foodId)
+          : [];
+        const decorated = decorateOptionGroupsForLocation(optionGroupsRaw, preferredLocation);
+        const priced = attachFoodPricing(
+          { ...foodRecord, food_availability: filteredAvailability, status },
+          decorated
+        );
+
+        return priced;
+      })
+    );
+
+    return NextResponse.json({
+      categories: categories ?? [],
+      foods: foods.filter((food) => (food as UnknownRecord)['status'] !== 'unavailable'),
+    });
   } catch (error: unknown) {
-    console.error('Fetch Menu Error:', error);
     const message = error instanceof Error ? error.message : 'Internal Server Error';
     return NextResponse.json({ error: message }, { status: 500 });
   }
