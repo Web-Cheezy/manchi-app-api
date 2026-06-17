@@ -70,24 +70,43 @@ This backend acts as a secure proxy for Paystack and your Supabase database.
 
 #### Create Order
 - **Endpoint**: `POST /api/orders`
+- **Headers**: `Authorization: Bearer <ACCESS_TOKEN>`
 - **Body**:
   ```json
   {
-    "user_id": "uuid",
     "total_amount": 5000,
     "vat": 100,
-    "delivery_address": "...",
-    "location": "...",
+    "delivery_address": "12 Example St, Lagos",
+    "location": "Chasemall",
+    "delivery_method": "delivery",
+    "delivery_lga": "Ikeja",
+    "order_note": "No onions please. Extra spicy.",
     "items": [
-      { "food_id": 1, "quantity": 2, "price_at_time": 2000, "options": {} }
+      {
+        "food_id": 1,
+        "quantity": 2,
+        "price_at_time": 2500,
+        "selections": [
+          { "group_id": 3, "item_id": 45, "quantity": 1 }
+        ]
+      }
     ]
   }
   ```
-- **Response**: `{ "message": "Order created successfully", "order_id": "..." }`
+- **Order note field** (optional): send as `order_note` (preferred). Aliases also accepted: `orderNote`, `note`, `customer_note`, `customerNote`. Max 500 characters; empty strings are ignored.
+- **Response**:
+  ```json
+  {
+    "message": "Order created successfully",
+    "order_id": 123,
+    "order_note": "No onions please. Extra spicy."
+  }
+  ```
 
 #### Order History
-- **Endpoint**: `GET /api/orders?userId=...`
-- **Response**: `{ "orders": [ ... ] }`
+- **Endpoint**: `GET /api/orders`
+- **Headers**: `Authorization: Bearer <ACCESS_TOKEN>`
+- **Response**: `{ "orders": [ { "id": 123, "order_note": "...", ... } ] }`
 
 ### 5. Payments (Paystack)
 

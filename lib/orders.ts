@@ -26,6 +26,27 @@ export type ParsedOrderLine = {
   optionsSnapshot: OrderItemOptionsSnapshot | UnknownRecord | null;
 };
 
+const MAX_ORDER_NOTE_LENGTH = 500;
+
+/** Optional customer note on checkout. Accepts common mobile field aliases. */
+export function parseOrderNote(body: UnknownRecord): string | null {
+  const raw =
+    body['order_note'] ??
+    body['orderNote'] ??
+    body['note'] ??
+    body['customer_note'] ??
+    body['customerNote'];
+
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== 'string') return null;
+
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return trimmed.length > MAX_ORDER_NOTE_LENGTH ? trimmed.slice(0, MAX_ORDER_NOTE_LENGTH) : trimmed;
+}
+
+export const ORDER_NOTE_MAX_LENGTH = MAX_ORDER_NOTE_LENGTH;
+
 async function fetchSidesByIds(sideIds: number[]) {
   if (sideIds.length === 0) return new Map<number, UnknownRecord>();
 

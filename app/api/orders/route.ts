@@ -3,7 +3,8 @@ import { supabase } from '@/lib/supabase';
 import { requireAuthenticatedUser } from '@/lib/auth';
 import { normalizeLocation } from '@/lib/utils';
 import { notifyOrderCreated } from '@/lib/fcm';
-import { getTransportPriceForLga, parseOrderLines, validateAndBuildOrderLines } from '@/lib/orders';
+import { getTransportPriceForLga, parseOrderLines, parseOrderNote, validateAndBuildOrderLines } from '@/lib/orders';
+import { isSchemaMismatch } from '@/lib/availability';
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuthenticatedUser(req);
@@ -124,23 +125,37 @@ export async function POST(req: NextRequest) {
     }
 
     const lineSnapshots = validated.lines.map((line) => line.optionsSnapshot).filter(Boolean);
+    const orderNote = parseOrderNote(body as Record<string, unknown>);
 
-    const { data: orderData, error: orderError } = await supabase
+    const orderPayload: Record<string, unknown> = {
+      user_id: auth.user.id,
+      total_amount: totalNumber,
+      vat: vat || 0,
+      status: status || 'pending',
+      delivery_address: resolvedDeliveryAddress,
+      location: normalizedLocation,
+      items: lineSnapshots,
+      delivery_method: resolvedDeliveryMethod,
+    };
+
+    if (orderNote) {
+      orderPayload.order_note = orderNote;
+    }
+
+    let { data: orderData, error: orderError } = await supabase
       .from('orders')
-      .insert([
-        {
-          user_id: auth.user.id,
-          total_amount: totalNumber,
-          vat: vat || 0,
-          status: status || 'pending',
-          delivery_address: resolvedDeliveryAddress,
-          location: normalizedLocation,
-          items: lineSnapshots,
-          delivery_method: resolvedDeliveryMethod,
-        },
-      ])
+      .insert([orderPayload])
       .select()
       .single();
+
+    if (orderError && isSchemaMismatch(orderError) && orderNote) {
+      delete orderPayload.order_note;
+      ({ data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert([orderPayload])
+        .select()
+        .single());
+    }
 
     if (orderError) throw orderError;
 
@@ -168,6 +183,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       message: 'Order created successfully',
       order_id: orderData.id,
+      order_note: orderNote,
     });
   } catch (error) {
     console.error('Create Order Error:', error);
