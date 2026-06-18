@@ -179,7 +179,7 @@ export async function fetchOptionGroupsForPricing(
       .order('display_order', { ascending: true });
 
     if (!error) {
-      groups = (Array.isArray(data) ? data : []) as OptionGroupRow[];
+      groups = (Array.isArray(data) ? data : []) as unknown as OptionGroupRow[];
       break;
     }
     if (!isSchemaMismatch(error) && !isQueryShapeError(error)) throw error;
@@ -489,7 +489,7 @@ export async function fetchPublicOptionGroupsForFood(
       .order('display_order', { ascending: true });
 
     if (!error) {
-      const groups = Array.isArray(data) ? (data as UnknownRecord[]) : [];
+      const groups = Array.isArray(data) ? (data as unknown as UnknownRecord[]) : [];
       if (groupsHaveSides(groups)) {
         return enrichOptionGroupsWithPricing(groups);
       }
@@ -512,7 +512,7 @@ export async function fetchPublicOptionGroupsForFood(
     .order('display_order', { ascending: true });
 
   if (!groupsError) {
-    const groups = Array.isArray(groupsRaw) ? (groupsRaw as UnknownRecord[]) : [];
+    const groups = Array.isArray(groupsRaw) ? (groupsRaw as unknown as UnknownRecord[]) : [];
     const joined = await manualJoinOptionGroupsWithSides(db, groups);
     if (joined.length > 0) {
       return enrichOptionGroupsWithPricing(joined);
@@ -531,7 +531,7 @@ export function attachFoodPricing(
   foodRecord: UnknownRecord,
   optionGroups: UnknownRecord[]
 ): UnknownRecord {
-  const groups = optionGroups as OptionGroupRow[];
+  const groups = optionGroups as unknown as OptionGroupRow[];
   const basePrice = Number(foodRecord['price']);
   const safeBase = Number.isFinite(basePrice) && basePrice >= 0 ? basePrice : 0;
 
