@@ -4,6 +4,7 @@ import { normalizeLocation } from '@/lib/utils';
 import {
   decorateOptionGroupsForLocation,
   filterAvailabilityRows,
+  isCustomerVisibleStatus,
   resolveFoodStatus,
   type UnknownRecord,
 } from '@/lib/availability';
@@ -48,7 +49,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       categories: categories ?? [],
-      foods: foods.filter((food) => (food as UnknownRecord)['status'] !== 'unavailable'),
+      foods: foods.filter((food) => isCustomerVisibleStatus((food as UnknownRecord)['status'] as 'available' | 'out_of_stock' | 'unavailable')),
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Internal Server Error';

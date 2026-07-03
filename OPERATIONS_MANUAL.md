@@ -1,316 +1,385 @@
 # Backend Operations Manual (Vercel + Supabase + FCM)
 
-This document is the day-to-day manual for operating the backend: deployments, push notifications (FCM), admin order status updates, mobile app integration, and account deletion.
+Day-to-day operations for **manchicodes** (`https://manchicodes.vercel.app`): deployments, checkout/payments, push notifications, admin integration, and account deletion.
+
+**Mobile integration:** see [FLUTTER_INTEGRATION.md](./FLUTTER_INTEGRATION.md) for the full API contract, schema mapping, and security rules.
 
 ---
 
-## 1) What This Backend Is
+## 1) What this backend is
 
-- Framework: Next.js (App Router) serverless API routes
-- Data: Supabase (Postgres + Auth)
-- Payments: Paystack
-- Push notifications: Firebase Admin SDK (FCM)
+| Layer | Technology |
+|-------|------------|
+| API | Next.js App Router (serverless on Vercel) |
+| Database & auth | Supabase (Postgres + Auth) |
+| Payments | Paystack (server-side only) |
+| Push | Firebase Admin SDK (FCM) |
 
-Key folders:
+**Key code paths:**
 
-- API routes: [app/api](file:///c:/Users/ronni/Desktop/manchicodes/app/api)
-- Auth helpers: [auth.ts](file:///c:/Users/ronni/Desktop/manchicodes/lib/auth.ts)
-- Supabase client (service-role): [supabase.ts](file:///c:/Users/ronni/Desktop/manchicodes/lib/supabase.ts)
-- FCM sending logic: [fcm.ts](file:///c:/Users/ronni/Desktop/manchicodes/lib/fcm.ts)
+| Area | Location |
+|------|----------|
+| API routes | `app/api/` |
+| Auth (JWT + staff roles) | `lib/auth.ts` |
+| Supabase service role client | `lib/supabase.ts` |
+| Order validation & `order_items` | `lib/orders.ts`, `lib/optionGroups.ts` |
+| Menu pricing (`display_price`, `price_delta`) | `lib/foodPricing.ts` |
+| Payment helpers (`orderId` in metadata) | `lib/payments.ts` |
+| FCM | `lib/fcm.ts` |
+
+**Related project:** **foodbackend** is the staff admin panel. It talks to Supabase directly for menu/options and calls **only** `PATCH /api/orders/:id` on manchicodes for status updates (FCM).
 
 ---
 
-## 2) Required Environment Variables (Vercel)
+## 2) Required environment variables (Vercel)
 
-Set these in **Vercel → Project → Settings → Environment Variables**.
+Set in **Vercel → Project → Settings → Environment Variables**.
 
 ### Core
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-
-### Push Notifications (FCM)
-
-- `FIREBASE_SERVICE_ACCOUNT_JSON`
-  - Must be a valid JSON string for a Firebase service account (Admin SDK key).
-  - If this is missing or malformed, pushes will not send.
-
-### Account Deletion
-
-- `DELETED_USER_ID`
-  - UUID of a real Supabase Auth user that acts as the placeholder “deleted user”.
+| Variable | Purpose |
+|----------|---------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-side DB access (never in mobile app) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Optional; used when staff JWT + RLS fallback is enabled |
 
 ### Paystack
 
-- `PAYSTACK_SECRET_KEY`
+| Variable | Purpose |
+|----------|---------|
+| `PAYSTACK_SECRET_KEY` | Initialize + verify transactions |
 
-### Optional / legacy
+### Push notifications (FCM)
 
-- This backend currently does **not** enforce `x-api-key` for requests. Some older docs mention an API key header; those are historical and not used by the current code.
+| Variable | Purpose |
+|----------|---------|
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Firebase Admin SDK service account JSON string |
 
----
+### Account deletion
 
-## 3) Health Check (Quick Operational Test)
+| Variable | Purpose |
+|----------|---------|
+| `DELETED_USER_ID` | UUID of placeholder auth user for anonymized orders |
 
-Endpoint:
+### Maps (optional)
 
-- `GET /api/health` → returns overall status and per-service checks
+| Variable | Purpose |
+|----------|---------|
+| `GOOGLE_MAPS_API_KEY` | `/api/maps/geocode` |
 
-What it checks:
+### Not used
 
-- Supabase connectivity
-- Paystack network reachability
-- Firebase JSON presence + parseability
+- **`x-api-key` / `API_SECRET_KEY`** — not enforced by current code. Do not document as required for mobile clients.
 
-Implementation: [health route](file:///c:/Users/ronni/Desktop/manchicodes/app/api/health/route.ts)
+### foodbackend (separate Vercel project)
 
----
-
-## 4) Authentication Model (How Requests Are Authorized)
-
-This backend primarily uses **Supabase JWTs**.
-
-### Mobile app (customer)
-
-- The app signs in with Supabase Auth.
-- For user-specific routes it calls the backend with:
-  - `Authorization: Bearer <supabase_access_token>`
-
-The backend validates this token using Supabase: [requireAuthenticatedUser](file:///c:/Users/ronni/Desktop/manchicodes/lib/auth.ts#L68-L84)
-
-### Admin users (staff)
-
-- Staff endpoints require the same `Authorization: Bearer <token>` header.
-- The backend then checks `profiles.role` for `admin` / `super_admin`: [requireStaffUser](file:///c:/Users/ronni/Desktop/manchicodes/lib/auth.ts#L20-L46)
-
-Location scoping:
-
-- Regular `admin` users are restricted to orders for their location; `super_admin` can update any order.
-- Enforced inside the status update route: [orders/[id] PATCH](file:///c:/Users/ronni/Desktop/manchicodes/app/api/orders/%5Bid%5D/route.ts#L45-L60)
+| Variable | Purpose |
+|----------|---------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Same Supabase project |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Admin browser client |
+| `BACKEND_URL` | `https://manchicodes.vercel.app` — **only** for `PATCH /api/orders/:id` |
 
 ---
 
-## 5) How the Mobile App Communicates With the Backend
+## 3) Health check
 
-Typical customer flows:
+```
+GET /api/health
+```
 
-### Orders
-
-- Create order: `POST /api/orders` (JWT required)
-- Order history: `GET /api/orders?userId=...` (JWT required in current implementation)
-
-Order creation also triggers an “order placed” push (if FCM configured and token exists): [notifyOrderCreated](file:///c:/Users/ronni/Desktop/manchicodes/lib/fcm.ts#L140-L155)
-
-### Payments
-
-- Initialize: `POST /api/paystack/initialize` (JWT required)
-- Verify: `GET /api/paystack/verify?reference=...` (JWT required)
-
-### Notifications inbox (in-app history)
-
-- List: `GET /api/notifications` (JWT required): [notifications route](file:///c:/Users/ronni/Desktop/manchicodes/app/api/notifications/route.ts#L9-L22)
-- Mark all read: `POST /api/notifications` (JWT required)
-- Mark one read: `PATCH /api/notifications/:id` (JWT required): [notifications/[id]](file:///c:/Users/ronni/Desktop/manchicodes/app/api/notifications/%5Bid%5D/route.ts)
+No auth. Reports Supabase, Paystack reachability, FCM JSON parseability, and missing env vars.
 
 ---
 
-## 6) How the Admin Panel Communicates With the Backend
+## 4) Authentication & security
 
-To ensure pushes are sent, the admin panel must call the backend API route that performs the update and triggers FCM.
+### Mobile (customers)
 
-### Update order status (the important one)
+- Sign in via Supabase Auth (`/api/auth/otp`, `/api/auth/verify`, etc.).
+- Protected routes require: `Authorization: Bearer <supabase_access_token>`.
+- Validated by `requireAuthenticatedUser` in `lib/auth.ts`.
 
-- Endpoint: `PATCH /api/orders/:id`
-- Headers:
-  - `Authorization: Bearer <admin_supabase_access_token>`
-  - `Content-Type: application/json`
-- Body:
-  - `{ "status": "pending|confirmed|preparing|delivering|delivered|cancelled" }`
+### Staff (admin / super_admin)
 
-Implementation: [orders/[id] PATCH](file:///c:/Users/ronni/Desktop/manchicodes/app/api/orders/%5Bid%5D/route.ts#L7-L87)
+- Same Bearer token from admin panel login.
+- `requireStaffUser` checks `profiles.role` ∈ `{ admin, super_admin }`.
+- Used for `PATCH /api/orders/:id`, `/api/fcm/broadcast`, `/api/admin/*` routes.
 
-Important:
+### Production security practices (implemented)
 
-- If the admin panel updates the `orders` table directly via Supabase client, **no push** will be sent because the backend trigger code will be bypassed.
+| Control | Where |
+|---------|--------|
+| No Paystack secret in client | Paystack routes server-only |
+| No service role in mobile app | Flutter → manchicodes API only |
+| Server-side price validation | `POST /api/orders` recomputes `expected_total` |
+| Order ownership on payment | `paystack/initialize` verifies `metadata.orderId` belongs to user |
+| User-scoped verify | `paystack/verify` checks `transactions.user_id` |
+| Rate limits | Paystack init/verify, account delete |
+| Staff location scoping | Branch `admin` can only PATCH orders for their `profiles.location` |
+
+### Supabase RLS
+
+Run in SQL Editor when setting up staff menu access:
+
+- `supabase/rls_staff_menu.sql` — `is_staff()` policies on menu/order tables
+- `supabase/display_pricing.sql` — `display_price`, `default_side_id`
 
 ---
 
-## 7) FCM Push Notifications (Operations + Campaigns)
+## 5) Checkout & payments (production flow)
 
-This backend supports:
+This is the **required** mobile flow. Orders are created **before** payment (intentional); the admin kitchen only sees **paid** orders.
 
-1) Per-user notifications:
+```
+1. POST /api/orders          → orders (pending) + order_items rows
+2. POST /api/paystack/initialize  → transactions (pending), metadata.orderId required
+3. User pays on Paystack
+4. GET /api/paystack/verify  → transactions.status = success, orders.pending → confirmed
+5. Admin dashboard shows order (linked via transactions.metadata.orderId)
+```
 
-- Order placed
-- Order status changes
+### `POST /api/orders`
 
-2) Broadcast notifications (“campaigns”) to all registered tokens:
+- JWT required.
+- Validates items, option `selections`, branch availability, delivery LGA → `transport_prices`.
+- Writes:
+  - **`orders`** — header + `items` JSONB (server snapshots)
+  - **`order_items`** — one row per line (`food_id` or `side_id`, `options` snapshot)
+- Triggers customer push `order_placed` (if FCM configured).
 
-- Staff-only broadcast endpoint
+### `POST /api/paystack/initialize`
 
-### 7.1 How tokens get into the database
+- JWT required.
+- **`metadata.orderId` required** — must match `order_id` from step 1.
+- Verifies order belongs to authenticated user.
+- Stores `orderId` + `order_id` in `transactions.metadata`.
+- **`amount` in kobo** (₦7,100 → `710000`).
 
-The app registers device tokens using:
+### `GET /api/paystack/verify`
 
-- `POST /api/fcm/register` (JWT required)
-- Body minimally requires: `{ "fcm_token": "..." }`
+- JWT required; user must own the transaction.
+- Updates `transactions.status` from Paystack.
+- On success: sets `orders.status` from `pending` → `confirmed`.
+- Returns `order_id` in JSON response.
 
-Route: [fcm/register](file:///c:/Users/ronni/Desktop/manchicodes/app/api/fcm/register/route.ts)
+### Admin visibility (foodbackend)
+
+- Dashboard / Orders / Payments list **only orders with a verified transaction** (`status` = `success` or `completed`) where `metadata.orderId` (or `order_id`) matches `orders.id`.
+- Unpaid `pending` orders exist in DB for the customer app but **do not** appear in admin until payment verifies.
+
+---
+
+## 6) Menu & option groups
+
+### Customer menu
+
+```
+GET /api/menu?location=Chasemall
+GET /api/foods?id=1&location=Chasemall
+```
+
+Returns foods with `option_groups`, `menu_price` / `display_price`, and `price_delta` on sides.
+
+### Database tables
+
+- `option_groups` — per-food customization (`default_side_id` = included in menu price)
+- `sides` — options linked via `option_group_id`
+- `food_availability` / `side_availability` — per-branch stock
+
+### Admin menu editing
+
+Handled in **foodbackend** via Supabase client (not `/api/admin/*` proxy). Staff must have `profiles.role` = `admin` or `super_admin` and RLS policies from `rls_staff_menu.sql`.
+
+---
+
+## 7) How the admin panel communicates
+
+| Action | Method |
+|--------|--------|
+| View paid orders | foodbackend → Supabase (`orders` filtered by `transactions`) |
+| Edit menu / options | foodbackend → Supabase directly |
+| Update order status | foodbackend → `PATCH https://manchicodes.vercel.app/api/orders/:id` |
+
+### Update order status (triggers FCM)
+
+```
+PATCH /api/orders/:id
+Authorization: Bearer <admin_supabase_access_token>
+Content-Type: application/json
+
+{ "status": "preparing" }
+```
+
+Allowed: `pending`, `confirmed`, `preparing`, `delivering`, `delivered`, `cancelled`.
+
+**Important:** Updating `orders` directly in Supabase bypasses FCM status pushes.
+
+Implementation: `app/api/orders/[id]/route.ts`
+
+---
+
+## 8) FCM push notifications
+
+### Token registration
+
+```
+POST /api/fcm/register
+{ "fcm_token": "...", "device_id": "...", "platform": "ios|android" }
+```
 
 Stored in `public.fcm_tokens`.
 
-### 7.2 How to send a “campaign” (broadcast)
+### Automatic pushes
 
-Endpoint:
+| Event | When |
+|-------|------|
+| Order placed | After `POST /api/orders` |
+| Status changed | After staff `PATCH /api/orders/:id` |
 
-- `POST /api/fcm/broadcast` (staff-only JWT required)
+Status message mapping: `lib/fcm.ts` → `statusMessages`.
 
-Body:
+### Broadcast (staff only)
 
-```json
-{
-  "title": "Promo",
-  "body": "Free delivery today!",
-  "data": { "route": "home", "type": "broadcast" }
-}
+```
+POST /api/fcm/broadcast
+{ "title": "...", "body": "...", "data": { "route": "home" } }
 ```
 
-Route: [fcm/broadcast](file:///c:/Users/ronni/Desktop/manchicodes/app/api/fcm/broadcast/route.ts)
+Also inserts into `user_notifications` with `user_id` null.
 
-What it does:
+### In-app inbox
 
-- Sends to all tokens via FCM
-- Saves a broadcast row into `public.user_notifications` (with `user_id` null) so the app can show it in history
+| Endpoint | Action |
+|----------|--------|
+| `GET /api/notifications` | List |
+| `PATCH /api/notifications/:id` | Mark read |
+| `POST /api/notifications` | Mark all read |
 
-### 7.3 Order status notifications
+### iOS (APNs + FCM)
 
-When staff updates an order’s status, the backend sends the user a push using the status message mapping:
+iOS push requires **APNs configured in Firebase** plus correct Flutter registration. Backend sends explicit APNs alert payloads (`lib/fcm.ts`).
 
-- `pending`, `confirmed`, `preparing`, `delivering`, `delivered`, `cancelled`
+**Firebase (one-time):** Project settings → Cloud Messaging → upload APNs Auth Key (.p8). Bundle ID must match Xcode.
 
-Mapping is defined in: [statusMessages](file:///c:/Users/ronni/Desktop/manchicodes/lib/fcm.ts#L157-L182)
+**Flutter:** Request permission → `getToken()` → `POST /api/fcm/register` with `"platform": "ios"` **after login**. Re-register on token refresh.
 
-### 7.4 iOS (Apple devices) notes
+**Verify tokens:**
 
-iOS delivery requires APNs configuration in Firebase:
+```sql
+SELECT platform, count(*) FROM fcm_tokens GROUP BY platform;
+```
 
-- Firebase Console → Project Settings → Cloud Messaging → Apple app configuration
-- Use APNs Auth Key (.p8) (recommended)
+No `ios` rows = no iPhone pushes. See `FLUTTER_INTEGRATION.md` → Push notifications → iOS.
 
-If APNs is missing/misconfigured, iOS will not receive pushes even if Android works.
+### Forgot password
 
----
-
-## 8) Vercel Logs: What You’ll See and What It Means
-
-### 8.1 Order status push result
-
-When a staff order status update triggers a push, the backend logs:
-
-`Order status push result { ... }`
-
-This is logged in: [orders/[id] PATCH](file:///c:/Users/ronni/Desktop/manchicodes/app/api/orders/%5Bid%5D/route.ts#L71-L81)
-
-Fields:
-
-- `configured`
-  - `true`: Firebase JSON is present and parseable
-  - `false`: FCM not configured; no push attempt will be made
-- `attempted`
-  - number of tokens fetched for the user
-- `success`, `failure`
-  - counts from Firebase send result
-- `invalid_tokens_removed`
-  - number of tokens removed from `fcm_tokens` because Firebase reported they are invalid
-- `notification_saved`
-  - whether the in-app notification was saved to `user_notifications`
-
-### 8.2 Common FCM warnings/errors
-
-- `[FCM] Not configured; skipping send.`
-  - `FIREBASE_SERVICE_ACCOUNT_JSON` missing or invalid
-- `messaging/registration-token-not-registered`
-  - the stored device token is stale (reinstall / token rotated)
-  - backend removes it automatically (`invalid_tokens_removed` increments)
-- `[FCM] Some sends failed: [...]`
-  - one or more tokens failed; inspect `errorInfo.code` in the log for exact reason
-
-FCM send logic: [sendToTokens](file:///c:/Users/ronni/Desktop/manchicodes/lib/fcm.ts#L61-L123)
+| Endpoint | Body |
+|----------|------|
+| `POST /api/auth/forgot-password` | `{ "email" }` — sends 6-digit OTP (no link) |
+| `POST /api/auth/reset-password` | `{ "email", "token", "password" }` — min 8 chars |
 
 ---
 
-## 9) Account Deletion (How It’s Configured)
+## 9) Vercel logs
 
-Endpoint:
+### Order status push
 
-- `POST /api/account/delete` (JWT required)
+After staff PATCH, look for:
 
-Implementation: [account deletion route](file:///c:/Users/ronni/Desktop/manchicodes/app/api/account/delete/route.ts)
+```
+Order status push result { configured, attempted, success, failure, invalid_tokens_removed, notification_saved }
+```
 
-What it does:
+### FCM warnings
 
-1) Rate-limits deletion attempts (per user + IP)
-2) Requires `DELETED_USER_ID` env var:
-   - must be a real Supabase Auth user
-   - must not equal the current user
-3) Anonymizes orders:
-   - reassigns `orders.user_id` to `DELETED_USER_ID`
-   - clears delivery PII fields
-   - sets `anonymized_at` and optional `anonymized_reason`
-4) Deletes user-owned rows:
-   - `profiles`, `addresses`
-   - optional: `fcm_tokens`, `user_notifications` (if tables exist)
-5) Deletes the Supabase Auth user:
-   - tries hard delete first
-   - if Supabase returns “Database error deleting user”, it retries with soft delete
-
-Operational requirement:
-
-- Create and keep a dedicated “deleted user” account in Supabase Auth and store its UUID in `DELETED_USER_ID`.
+| Log | Meaning |
+|-----|---------|
+| `[FCM] Not configured` | `FIREBASE_SERVICE_ACCOUNT_JSON` missing/invalid |
+| `registration-token-not-registered` | Stale token removed from `fcm_tokens` |
 
 ---
 
-## 10) SQL: Token & Notification Tables (Reference)
+## 10) Account deletion
 
-If you need to create/extend the notification-related tables, see:
+```
+POST /api/account/delete
+Authorization: Bearer <token>
+```
 
-- [SQL_SCHEMA_ADDITIONS.md](file:///c:/Users/ronni/Desktop/manchicodes/SQL_SCHEMA_ADDITIONS.md)
-
-Key tables:
-
-- `public.fcm_tokens` (device tokens)
-- `public.user_notifications` (in-app notification history)
-
----
-
-## 11) Day-2 Operations Checklist
-
-### Push notifications not sending
-
-1) Check `GET /api/health` → `checks.fcm`
-2) Check Vercel logs for `[FCM] Not configured`
-3) If configured is true but success is 0:
-   - check for `registration-token-not-registered`
-   - the user needs to open the app again so it re-registers a fresh token
-4) If only iOS fails:
-   - confirm APNs setup in Firebase
-
-### Users report “I didn’t get a push”
-
-- Confirm there is a row for that user in `public.fcm_tokens`
-- Trigger an order status update and review the `Order status push result` log
-- Check if `invalid_tokens_removed > 0` (stale tokens were present)
-
-### Admin updates status but user doesn’t get push
-
-- Ensure the admin panel is calling `PATCH /api/orders/:id` (not direct Supabase table updates)
-- Ensure the admin user has `profiles.role` set to `admin` or `super_admin`
+1. Rate-limited per user + IP  
+2. Requires valid `DELETED_USER_ID` env  
+3. Anonymizes orders (`user_id` → placeholder, clears delivery PII, sets `anonymized_at`)  
+4. Deletes `profiles`, `addresses`, FCM tokens, notifications  
+5. Deletes or soft-deletes Supabase Auth user  
 
 ---
 
-## 12) Security Notes
+## 11) Database schema reference
 
-- Never commit secrets to git (service role keys, Paystack secret, Firebase private key).
-- Rotate secrets if exposed.
-- Consider Supabase storage policies to prevent public bucket listing if you store user content.
+Core tables (see [FLUTTER_INTEGRATION.md](./FLUTTER_INTEGRATION.md) for field-level detail):
 
+| Table | Role |
+|-------|------|
+| `profiles` | Users; `role`, `location` for staff |
+| `categories`, `foods`, `option_groups`, `sides` | Menu |
+| `food_availability`, `side_availability` | Branch stock |
+| `orders`, `order_items` | Checkout |
+| `transactions` | Paystack payments (`metadata.orderId` links to orders) |
+| `transport_prices` | Delivery fee by LGA |
+| `addresses` | Saved addresses |
+| `fcm_tokens`, `user_notifications` | Push |
+
+SQL migrations: `supabase/display_pricing.sql`, `supabase/order_note.sql`, `supabase/rls_staff_menu.sql`
+
+---
+
+## 12) Day-2 troubleshooting
+
+### Order in DB but not in admin
+
+1. Was Paystack verify called and returned `success`?
+2. Does `transactions.metadata` contain `orderId` matching `orders.id`?
+3. Is `transactions.status` = `success` or `completed`?
+
+### Paystack initialize returns 400
+
+- Missing `metadata.orderId`
+- Order does not belong to the paying user
+- Order id typo
+
+### `order_items` empty but `orders.items` has JSON
+
+- App inserted into `orders` directly instead of `POST /api/orders`. Fix the mobile client.
+
+### Push not sent on status update
+
+- Admin must use `PATCH /api/orders/:id`, not direct Supabase update
+- Admin `profiles.role` must be `admin` or `super_admin`
+- Check `GET /api/health` → FCM configured
+
+### Build/deploy fails on Vercel
+
+- Run `npm run build` locally in `manchicodes`
+- Admin API routes under `app/api/admin/*` must compile (TypeScript in `lib/foodPricing.ts`)
+
+---
+
+## 13) Security checklist
+
+- [ ] Never commit `SUPABASE_SERVICE_ROLE_KEY`, `PAYSTACK_SECRET_KEY`, or Firebase private keys
+- [ ] Rotate secrets if exposed
+- [ ] Mobile app uses JWT only — no service role
+- [ ] `rls_staff_menu.sql` applied in Supabase
+- [ ] `transactions_rls.sql` applied for admin payment views (foodbackend)
+- [ ] Paystack initialize requires `orderId` in production
+- [ ] Admin panel `BACKEND_URL` points to manchicodes, not foodbackend itself
+
+---
+
+## 14) Deploy checklist
+
+1. `git push` → Vercel auto-deploys **manchicodes**
+2. Confirm `GET /api/health` is healthy
+3. Confirm `GET /api/admin/foods/1/option-groups` returns **401 JSON** (not HTML 404) if using admin API routes
+4. Deploy **foodbackend** separately
+5. Smoke test: create order → pay → verify → order appears in admin

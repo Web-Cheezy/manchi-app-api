@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuthenticatedUser } from '@/lib/auth';
 import { saveTransaction } from '@/lib/db';
+import { extractOrderIdFromMetadata } from '@/lib/payments';
+import { supabase } from '@/lib/supabase';
 import { normalizeLocation } from '@/lib/utils';
 import { getClientIp, normalizeEmail, rateLimit } from '@/lib/rateLimit';
 
@@ -27,30 +29,49 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const orderId = extractOrderIdFromMetadata(metadata);
+    if (orderId === null) {
+      return NextResponse.json(
+        { error: 'metadata.orderId is required (use the order_id returned from POST /api/orders)' },
+        { status: 400 }
+      );
+    }
+
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('id, user_id')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (orderError) throw orderError;
+    if (!order || order.user_id !== auth.user.id) {
+      return NextResponse.json({ error: 'Invalid order for payment' }, { status: 400 });
+    }
+
+    const paystackMetadata = {
+      ...(typeof metadata === 'object' && metadata !== null ? metadata : {}),
+      orderId: String(orderId),
+      order_id: orderId,
+      user_id: auth.user.id,
+      location: location,
+    };
     const secretKey = process.env.PAYSTACK_SECRET_KEY;
     if (!secretKey) {
         console.error('PAYSTACK_SECRET_KEY is not defined');
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
 
-    // 2. Call Paystack API
-    // We pass metadata to Paystack so it's returned in webhooks/verification
-    const paystackMetadata = {
-      ...metadata,
-      user_id: auth.user.id, // Custom field to track which user made this payment
-      location: location // Save location in metadata for Paystack reference
-    };
-
+    // Call Paystack API (metadata links payment → order for admin dashboard)
     const paystackResponse = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${secretKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ 
-        email, 
+      body: JSON.stringify({
+        email,
         amount,
-        metadata: paystackMetadata
+        metadata: paystackMetadata,
       }),
     });
 

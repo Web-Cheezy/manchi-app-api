@@ -4,6 +4,7 @@ import { normalizeLocation } from '@/lib/utils';
 import {
   decorateOptionGroupsForLocation,
   filterAvailabilityRows,
+  isCustomerVisibleStatus,
   isSchemaMismatch,
   resolveFoodStatus,
   type UnknownRecord,
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
       const filteredAvailability = filterAvailabilityRows(dataRecord['food_availability'], preferredLocation);
       const resolvedStatus = resolveFoodStatus({ ...dataRecord, food_availability: filteredAvailability }, preferredLocation);
 
-      if (resolvedStatus === 'unavailable') {
+      if (!isCustomerVisibleStatus(resolvedStatus)) {
         return NextResponse.json({ error: 'Not found' }, { status: 404 });
       }
 
@@ -87,7 +88,7 @@ export async function GET(req: NextRequest) {
           menu_price: effectiveMenuPrice(foodRecord),
         };
       })
-      .filter((food) => (food as UnknownRecord)['status'] !== 'unavailable');
+      .filter((food) => isCustomerVisibleStatus((food as UnknownRecord)['status'] as 'available' | 'out_of_stock' | 'unavailable'));
 
     return NextResponse.json(foods);
   } catch (error: unknown) {

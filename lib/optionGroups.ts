@@ -89,7 +89,7 @@ export function parseLineSelections(item: UnknownRecord): LineSelectionInput[] {
     const parsed: LineSelectionInput[] = [];
     for (const raw of rawSelections) {
       const row: UnknownRecord = typeof raw === 'object' && raw !== null ? (raw as UnknownRecord) : {};
-      const itemId = Number(row.item_id ?? row.id);
+      const itemId = Number(row.item_id ?? row.side_id ?? row.id);
       const groupId = row.group_id !== undefined && row.group_id !== null ? Number(row.group_id) : undefined;
       const quantity = Number(row.quantity ?? 1);
       if (!Number.isFinite(itemId) || !Number.isFinite(quantity) || quantity <= 0) continue;
@@ -104,7 +104,7 @@ export function parseLineSelections(item: UnknownRecord): LineSelectionInput[] {
   const parsed: LineSelectionInput[] = [];
   for (const raw of rawOptions) {
     const row: UnknownRecord = typeof raw === 'object' && raw !== null ? (raw as UnknownRecord) : {};
-    const itemId = Number(row.item_id ?? row.id);
+    const itemId = Number(row.item_id ?? row.side_id ?? row.id);
     const groupId = row.group_id !== undefined && row.group_id !== null ? Number(row.group_id) : undefined;
     const quantity = Number(row.quantity ?? 1);
     if (!Number.isFinite(itemId) || !Number.isFinite(quantity) || quantity <= 0) continue;

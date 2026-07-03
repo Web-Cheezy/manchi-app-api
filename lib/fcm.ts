@@ -1,25 +1,68 @@
 /**
  * FCM (Firebase Cloud Messaging) helper.
  * Set FIREBASE_SERVICE_ACCOUNT_JSON (stringified JSON) in env to enable sending.
+ * Local fallback also supports a raw multiline JSON block in `.env.local`
+ * and a base64-encoded `FIREBASE_SERVICE_ACCOUNT_JSON_BASE64`.
  * If not set, send functions no-op and return.
  */
 
 import * as admin from 'firebase-admin';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { deleteFcmTokens, getAllFcmTokens, getFcmTokensByUserId, insertUserNotification } from './db';
 
 let app: admin.app.App | null = null;
 
+function readMultilineEnvBlock(varName: string): string | null {
+  const envPath = join(process.cwd(), '.env.local');
+  if (!existsSync(envPath)) return null;
+  const content = readFileSync(envPath, 'utf8');
+  const lines = content.split(/\r?\n/);
+  const startIndex = lines.findIndex((line) => line.startsWith(`${varName}=`));
+  if (startIndex === -1) return null;
+
+  const firstLine = lines[startIndex].slice(varName.length + 1);
+  if (!firstLine.trim().startsWith('{')) return null;
+
+  const buffer = [firstLine];
+  for (let i = startIndex + 1; i < lines.length; i += 1) {
+    buffer.push(lines[i]);
+    if (lines[i].trim() === '}') break;
+  }
+
+  const candidate = buffer.join('\n').trim();
+  return candidate.startsWith('{') && candidate.endsWith('}') ? candidate : null;
+}
+
+function decodeBase64ServiceAccount(value: string): string | null {
+  try {
+    const decoded = Buffer.from(value, 'base64').toString('utf8').trim();
+    return decoded.startsWith('{') ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
 function getServiceAccountEnv(): string | null {
   const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const jsonBase64 = process.env.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64;
   const legacy = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   console.info('[FCM] Env check', {
     hasJson: !!json,
+    hasJsonBase64: !!jsonBase64,
     hasLegacy: !!legacy,
     jsonLength: json ? json.length : 0,
+    jsonBase64Length: jsonBase64 ? jsonBase64.length : 0,
     legacyLength: legacy ? legacy.length : 0,
   });
-  if (json && json.trim()) return json;
+  if (json && json.trim() && json.trim() !== '{') return json;
+  if (jsonBase64 && jsonBase64.trim()) {
+    const decoded = decodeBase64ServiceAccount(jsonBase64.trim());
+    if (decoded) return decoded;
+  }
   if (legacy && legacy.trim()) return legacy;
+  const fromEnvFile = readMultilineEnvBlock('FIREBASE_SERVICE_ACCOUNT_JSON');
+  if (fromEnvFile) return fromEnvFile;
   return null;
 }
 
@@ -127,8 +170,30 @@ async function sendToTokens(tokens: string[], payload: FcmPayload): Promise<{ re
     tokens,
     notification: { title: payload.title, body: payload.body },
     data: payload.data ?? {},
-    android: { priority: 'high' },
-    apns: { payload: { aps: { sound: 'default' } } },
+    android: {
+      priority: 'high',
+      notification: {
+        channelId: 'manchi_orders',
+        priority: 'high' as const,
+      },
+    },
+    apns: {
+      headers: {
+        'apns-priority': '10',
+        'apns-push-type': 'alert',
+      },
+      payload: {
+        aps: {
+          alert: {
+            title: payload.title,
+            body: payload.body,
+          },
+          sound: 'default',
+          badge: 1,
+          'mutable-content': 1,
+        },
+      },
+    },
   };
   try {
     const res = await messaging.sendEachForMulticast(message);

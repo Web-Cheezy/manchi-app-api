@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuthenticatedUser } from '@/lib/auth';
 import { getTransaction, updateTransactionStatus } from '@/lib/db';
+import { extractOrderIdFromMetadata, isPaidTransaction } from '@/lib/payments';
+import { supabase } from '@/lib/supabase';
 import { getClientIp, rateLimit } from '@/lib/rateLimit';
 
 export async function GET(req: NextRequest) {
@@ -37,7 +39,6 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
 
-    // 2. Call Paystack Verify API
     const paystackResponse = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
       method: 'GET',
       headers: {
@@ -55,18 +56,30 @@ export async function GET(req: NextRequest) {
     }
 
     const transactionData = data.data;
-    const status = transactionData.status; // 'success', 'abandoned', 'failed'
+    const status = transactionData.status;
 
-    // 3. Update Database (Proxy requirement)
     await updateTransactionStatus(reference, status);
 
-    // 4. Return result to Flutter app
+    let orderId =
+      extractOrderIdFromMetadata(existingRecord.metadata) ??
+      extractOrderIdFromMetadata(transactionData.metadata);
+
+    if (isPaidTransaction(status) && orderId !== null) {
+      await supabase
+        .from('orders')
+        .update({ status: 'confirmed' })
+        .eq('id', orderId)
+        .eq('user_id', auth.user.id)
+        .eq('status', 'pending');
+    }
+
     return NextResponse.json({
-      status: status,
+      status,
       message: transactionData.gateway_response,
       amount: transactionData.amount,
       reference: transactionData.reference,
       paid_at: transactionData.paid_at,
+      order_id: orderId,
     });
 
   } catch (error) {

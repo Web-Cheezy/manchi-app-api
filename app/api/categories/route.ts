@@ -1,56 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { normalizeLocation } from '@/lib/utils';
-
-type AvailabilityStatus = 'available' | 'out_of_stock' | 'unavailable';
-type UnknownRecord = Record<string, unknown>;
-
-function normalizeAvailabilityStatus(value: unknown): AvailabilityStatus | undefined {
-  if (value === null || value === undefined) return undefined;
-  const v = String(value).trim().toLowerCase();
-  if (v === 'available') return 'available';
-  if (v === 'out_of_stock' || v === 'out-of-stock' || v === 'outofstock') return 'out_of_stock';
-  if (v === 'unavailable') return 'unavailable';
-  return undefined;
-}
-
-function resolveFoodStatus(food: unknown, preferredLocation?: string): AvailabilityStatus {
-  const foodRecord: UnknownRecord = typeof food === 'object' && food !== null ? (food as UnknownRecord) : {};
-
-  const availabilityValue = foodRecord['food_availability'];
-  if (Array.isArray(availabilityValue) && availabilityValue.length > 0) {
-    const availabilityRows = preferredLocation
-      ? availabilityValue.filter((row: unknown) => {
-          const rowRecord: UnknownRecord = typeof row === 'object' && row !== null ? (row as UnknownRecord) : {};
-          const rawLocation = rowRecord['location'] ?? rowRecord['store'];
-          const normalized = normalizeLocation(typeof rawLocation === 'string' ? rawLocation : undefined);
-          return normalized === preferredLocation;
-        })
-      : availabilityValue;
-
-    const firstRow: UnknownRecord | undefined =
-      typeof availabilityRows?.[0] === 'object' && availabilityRows?.[0] !== null
-        ? (availabilityRows[0] as UnknownRecord)
-        : undefined;
-
-    const nestedStatus = normalizeAvailabilityStatus(firstRow?.['status']);
-    if (nestedStatus) return nestedStatus;
-  }
-
-  const candidates = [
-    foodRecord['availability_status'],
-    foodRecord['availability'],
-    foodRecord['status'],
-    typeof foodRecord['is_available'] === 'boolean' ? (foodRecord['is_available'] ? 'available' : 'unavailable') : undefined,
-  ];
-
-  for (const candidate of candidates) {
-    const status = normalizeAvailabilityStatus(candidate);
-    if (status) return status;
-  }
-
-  return 'available';
-}
+import { filterAvailabilityRows, isCustomerVisibleStatus, resolveFoodStatus, type UnknownRecord } from '@/lib/availability';
 
 function isSchemaMismatch(error: unknown): boolean {
   const msg = String((error as { message?: unknown } | null)?.message ?? '').toLowerCase();
@@ -123,19 +74,9 @@ export async function GET(req: NextRequest) {
     const categoryIds = new Set<string | number>();
     for (const food of Array.isArray(foods) ? foods : []) {
       const foodRecord: UnknownRecord = typeof food === 'object' && food !== null ? (food as UnknownRecord) : {};
-      const availabilityValue = foodRecord['food_availability'];
-      const filteredAvailability =
-        Array.isArray(availabilityValue) && preferredLocation
-          ? availabilityValue.filter((row: unknown) => {
-              const rowRecord: UnknownRecord = typeof row === 'object' && row !== null ? (row as UnknownRecord) : {};
-              const rawLocation = rowRecord['location'] ?? rowRecord['store'];
-              const normalized = normalizeLocation(typeof rawLocation === 'string' ? rawLocation : undefined);
-              return normalized === preferredLocation;
-            })
-          : availabilityValue;
-
+      const filteredAvailability = filterAvailabilityRows(foodRecord['food_availability'], preferredLocation);
       const status = resolveFoodStatus({ ...foodRecord, food_availability: filteredAvailability }, preferredLocation);
-      if (status === 'unavailable') continue;
+      if (!isCustomerVisibleStatus(status)) continue;
       const categoryId = foodRecord['category_id'];
       if (categoryId !== null && categoryId !== undefined) {
         categoryIds.add(categoryId as string | number);
