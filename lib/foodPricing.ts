@@ -49,7 +49,7 @@ export function computeDisplayPrice(basePrice: number, groups: OptionGroupRow[])
   return total;
 }
 
-/** Explicit admin default, else cheapest side in group (pricing baseline for deltas). */
+/** Explicit admin default only. If none is selected, nothing is included in menu price. */
 export function resolvePricingDefaultSideId(
   group: Pick<OptionGroupRow, 'default_side_id'>,
   rawSides: UnknownRecord[]
@@ -58,23 +58,7 @@ export function resolvePricingDefaultSideId(
   if (explicit !== null && explicit !== undefined && Number.isFinite(Number(explicit))) {
     return Number(explicit);
   }
-
-  const sides = Array.isArray(rawSides) ? rawSides : [];
-  if (sides.length === 0) return null;
-
-  let cheapestId: number | null = null;
-  let cheapestPrice = Infinity;
-  for (const sideRaw of sides) {
-    const side: UnknownRecord = typeof sideRaw === 'object' && sideRaw !== null ? sideRaw : {};
-    const sideId = Number(side['id']);
-    const sidePrice = sideUnitPrice(side);
-    if (!Number.isFinite(sideId)) continue;
-    if (sidePrice < cheapestPrice) {
-      cheapestPrice = sidePrice;
-      cheapestId = sideId;
-    }
-  }
-  return cheapestId;
+  return null;
 }
 
 /** Unit line price for checkout: base + all selected option prices. */

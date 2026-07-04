@@ -16,6 +16,10 @@ export function isCustomerVisibleStatus(status: AvailabilityStatus): boolean {
   return status === 'available';
 }
 
+export function isCustomerOrderableStatus(status: AvailabilityStatus): boolean {
+  return status === 'available';
+}
+
 export function isSchemaMismatch(error: unknown): boolean {
   const msg = String((error as { message?: unknown } | null)?.message ?? '').toLowerCase();
   return msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('column') || msg.includes('relation');

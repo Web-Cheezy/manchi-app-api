@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import {
+  isCustomerOrderableStatus,
   isSchemaMismatch,
   resolveFoodStatus,
   resolveSideStatus,
@@ -191,7 +192,7 @@ export async function validateAndBuildOrderLines(
     if (line.kind === 'side') {
       const side = sideById.get(line.side_id as number);
       if (!side) return { ok: false, error: 'Invalid order item', status: 400 };
-      if (resolveSideStatus(side, normalizedLocation) !== 'available') {
+      if (!isCustomerOrderableStatus(resolveSideStatus(side, normalizedLocation))) {
         return { ok: false, error: 'Item not available', status: 400 };
       }
       const price = Number(side.price);
@@ -209,7 +210,7 @@ export async function validateAndBuildOrderLines(
     const foodId = line.food_id as number;
     const food = foodById.get(foodId);
     if (!food) return { ok: false, error: 'Invalid order item', status: 400 };
-    if (resolveFoodStatus(food, normalizedLocation) !== 'available') {
+    if (!isCustomerOrderableStatus(resolveFoodStatus(food, normalizedLocation))) {
       return { ok: false, error: 'Item not available', status: 400 };
     }
 
@@ -252,7 +253,7 @@ export async function validateAndBuildOrderLines(
         if (allowed.size > 0 && !allowed.has(selection.item_id)) {
           return { ok: false, error: 'Option does not belong to this food', status: 400 };
         }
-        if (resolveSideStatus(side, normalizedLocation) !== 'available') {
+        if (!isCustomerOrderableStatus(resolveSideStatus(side, normalizedLocation))) {
           return { ok: false, error: 'Item option not available', status: 400 };
         }
         const optionPrice = Number(side.price);
