@@ -5,6 +5,7 @@ import {
   decorateOptionGroupsForLocation,
   filterAvailabilityRows,
   isCustomerVisibleStatus,
+  isSchemaMismatch,
   resolveFoodStatus,
   type UnknownRecord,
 } from '@/lib/availability';
@@ -20,10 +21,19 @@ export async function GET(req: NextRequest) {
   const preferredLocation = normalizeLocation(location);
 
   try {
-    const [{ data: categories, error: categoriesError }, { data: foodsRaw, error: foodsError }] = await Promise.all([
+    const [{ data: categories, error: categoriesError }, foodsResult] = await Promise.all([
       supabase.from('categories').select('*').order('id'),
       supabase.from('foods').select('*,food_availability(*)').order('name'),
     ]);
+
+    let foodsRaw = foodsResult.data;
+    let foodsError = foodsResult.error;
+
+    if (foodsError && isSchemaMismatch(foodsError)) {
+      const fallback = await supabase.from('foods').select('*').order('name');
+      foodsRaw = fallback.data;
+      foodsError = fallback.error;
+    }
 
     if (categoriesError) throw categoriesError;
     if (foodsError) throw foodsError;
@@ -34,9 +44,16 @@ export async function GET(req: NextRequest) {
         const filteredAvailability = filterAvailabilityRows(foodRecord['food_availability'], preferredLocation);
         const status = resolveFoodStatus({ ...foodRecord, food_availability: filteredAvailability }, preferredLocation);
         const foodId = Number(foodRecord['id']);
-        const optionGroupsRaw = Number.isFinite(foodId)
-          ? await fetchPublicOptionGroupsForFood(supabase, foodId)
-          : [];
+        let optionGroupsRaw: UnknownRecord[] = [];
+
+        if (Number.isFinite(foodId)) {
+          try {
+            optionGroupsRaw = await fetchPublicOptionGroupsForFood(supabase, foodId);
+          } catch (error) {
+            if (!isSchemaMismatch(error)) throw error;
+          }
+        }
+
         const decorated = decorateOptionGroupsForLocation(optionGroupsRaw, preferredLocation);
         const priced = attachFoodPricing(
           { ...foodRecord, food_availability: filteredAvailability, status },
