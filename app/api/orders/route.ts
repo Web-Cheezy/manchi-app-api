@@ -3,8 +3,15 @@ import { supabase } from '@/lib/supabase';
 import { requireAuthenticatedUser } from '@/lib/auth';
 import { normalizeLocation } from '@/lib/utils';
 import { notifyOrderCreated } from '@/lib/fcm';
-import { getTransportPriceForLga, parseOrderLines, parseOrderNote, validateAndBuildOrderLines } from '@/lib/orders';
-import { isSchemaMismatch } from '@/lib/availability';
+import {
+  attachOrderItemImages,
+  enrichParsedOrderLinesWithImages,
+  getTransportPriceForLga,
+  parseOrderLines,
+  parseOrderNote,
+  validateAndBuildOrderLines,
+} from '@/lib/orders';
+import { isSchemaMismatch, type UnknownRecord } from '@/lib/availability';
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuthenticatedUser(req);
@@ -18,6 +25,10 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
+
+    if (Array.isArray(data) && data.length > 0) {
+      await attachOrderItemImages(data as UnknownRecord[]);
+    }
 
     return NextResponse.json({ orders: data });
   } catch (error) {
@@ -94,6 +105,8 @@ export async function POST(req: NextRequest) {
     if (!validated.ok) {
       return NextResponse.json({ error: validated.error }, { status: validated.status });
     }
+
+    await enrichParsedOrderLinesWithImages(validated.lines);
 
     const vatNumber = Number(vat ?? 0);
     let computedDeliveryFee = 0;

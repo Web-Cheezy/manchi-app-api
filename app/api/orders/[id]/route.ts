@@ -3,6 +3,8 @@ import { supabase } from '@/lib/supabase';
 import { forbiddenResponse, requireAuthenticatedUser, requireStaffUser } from '@/lib/auth';
 import { notifyOrderStatusChange } from '@/lib/fcm';
 import { normalizeLocation } from '@/lib/utils';
+import { attachOrderItemImages } from '@/lib/orders';
+import type { UnknownRecord } from '@/lib/availability';
 
 export async function GET(
   req: NextRequest,
@@ -26,6 +28,8 @@ export async function GET(
     if (data.user_id !== auth.user.id) {
       return forbiddenResponse();
     }
+
+    await attachOrderItemImages([data as UnknownRecord]);
 
     return NextResponse.json(data);
   } catch (error) {

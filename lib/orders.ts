@@ -292,6 +292,165 @@ export async function validateAndBuildOrderLines(
   return { ok: true, lines, computedItemsTotal, computedOptionsTotal };
 }
 
+export async function attachOrderItemImages(orders: UnknownRecord[]) {
+  const items = orders.flatMap((o) => {
+    const arr = (o as { order_items?: unknown[] }).order_items;
+    return Array.isArray(arr) ? (arr as UnknownRecord[]) : [];
+  });
+
+  if (items.length === 0) return;
+
+  const foodIds = new Set<number>();
+  const sideIds = new Set<number>();
+  for (const it of items) {
+    const fid = Number(it.food_id);
+    const sid = Number(it.side_id);
+    if (Number.isFinite(fid) && fid > 0) foodIds.add(fid);
+    if (Number.isFinite(sid) && sid > 0) sideIds.add(sid);
+    const opts = (it.options ?? null) as UnknownRecord | null;
+    if (opts && typeof opts === 'object') {
+      const ofid = Number((opts as { food_id?: unknown }).food_id);
+      const osid = Number((opts as { side_id?: unknown }).side_id);
+      if (Number.isFinite(ofid) && ofid > 0) foodIds.add(ofid);
+      if (Number.isFinite(osid) && osid > 0) sideIds.add(osid);
+      const sels = (opts as { selections?: unknown[] }).selections;
+      if (Array.isArray(sels)) {
+        for (const s of sels) {
+          const iid = Number((s as UnknownRecord).item_id);
+          if (Number.isFinite(iid) && iid > 0) sideIds.add(iid);
+        }
+      }
+    }
+  }
+
+  const foodImages = new Map<number, string | null>();
+  const sideImages = new Map<number, string | null>();
+
+  if (foodIds.size > 0) {
+    const { data, error } = await supabase
+      .from('foods')
+      .select('id,image_url')
+      .in('id', Array.from(foodIds));
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        foodImages.set(
+          Number(row.id),
+          typeof row.image_url === 'string' ? row.image_url : null
+        );
+      }
+    }
+  }
+
+  if (sideIds.size > 0) {
+    const { data, error } = await supabase
+      .from('sides')
+      .select('id,image_url')
+      .in('id', Array.from(sideIds));
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        sideImages.set(
+          Number(row.id),
+          typeof row.image_url === 'string' ? row.image_url : null
+        );
+      }
+    }
+  }
+
+  for (const order of orders) {
+    const orderItems = (order as { order_items?: unknown[] }).order_items;
+    if (!Array.isArray(orderItems)) continue;
+    for (const item of orderItems as UnknownRecord[]) {
+      const fid = Number(item.food_id);
+      const sid = Number(item.side_id);
+      const opts = (item.options ?? null) as UnknownRecord | null;
+      const foodImg = Number.isFinite(fid) && fid > 0 ? foodImages.get(fid) ?? null : null;
+      const sideImg = Number.isFinite(sid) && sid > 0 ? sideImages.get(sid) ?? null : null;
+
+      const primaryImg = sid ? sideImg : foodImg;
+      (item as Record<string, unknown>).image_url = primaryImg;
+
+      if (opts && typeof opts === 'object') {
+        const optsMut = opts as Record<string, unknown>;
+        if (!('image_url' in optsMut) || optsMut.image_url === null || optsMut.image_url === undefined || optsMut.image_url === '') {
+          optsMut.image_url = primaryImg;
+        }
+        const sels = optsMut.selections;
+        if (Array.isArray(sels)) {
+          for (const sel of sels as UnknownRecord[]) {
+            const selMut = sel as Record<string, unknown>;
+            const iid = Number(selMut.item_id);
+            if (Number.isFinite(iid) && iid > 0 && (!('image_url' in selMut) || selMut.image_url === null || selMut.image_url === undefined)) {
+              selMut.image_url = sideImages.get(iid) ?? null;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+export async function enrichParsedOrderLinesWithImages(lines: ParsedOrderLine[]) {
+  const foodIds = new Set<number>();
+  const sideIds = new Set<number>();
+  for (const line of lines) {
+    if (line.kind === 'food' && line.food_id) foodIds.add(line.food_id);
+    if (line.kind === 'side' && line.side_id) sideIds.add(line.side_id);
+    for (const sel of line.selections) {
+      if (sel.item_id) sideIds.add(sel.item_id);
+    }
+  }
+
+  const foodImages = new Map<number, string | null>();
+  const sideImages = new Map<number, string | null>();
+
+  if (foodIds.size > 0) {
+    const { data, error } = await supabase.from('foods').select('id,image_url').in('id', Array.from(foodIds));
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        foodImages.set(Number(row.id), typeof row.image_url === 'string' ? row.image_url : null);
+      }
+    }
+  }
+
+  if (sideIds.size > 0) {
+    const { data, error } = await supabase.from('sides').select('id,image_url').in('id', Array.from(sideIds));
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        sideImages.set(Number(row.id), typeof row.image_url === 'string' ? row.image_url : null);
+      }
+    }
+  }
+
+  for (const line of lines) {
+    const snap = line.optionsSnapshot;
+    if (!snap || typeof snap !== 'object') continue;
+    const snapMut = snap as Record<string, unknown>;
+
+    if (line.kind === 'food' && line.food_id) {
+      const img = foodImages.get(line.food_id) ?? null;
+      if (!('image_url' in snapMut) || snapMut.image_url === null || snapMut.image_url === undefined || snapMut.image_url === '') {
+        snapMut.image_url = img;
+      }
+    } else if (line.kind === 'side' && line.side_id) {
+      const img = sideImages.get(line.side_id) ?? null;
+      if (!('image_url' in snapMut) || snapMut.image_url === null || snapMut.image_url === undefined || snapMut.image_url === '') {
+        snapMut.image_url = img;
+      }
+    }
+
+    const sels = snapMut.selections;
+    if (Array.isArray(sels)) {
+      for (const sel of sels as UnknownRecord[]) {
+        const selMut = sel as Record<string, unknown>;
+        const iid = Number(selMut.item_id);
+        if (Number.isFinite(iid) && iid > 0 && (!('image_url' in selMut) || selMut.image_url === null || selMut.image_url === undefined)) {
+          selMut.image_url = sideImages.get(iid) ?? null;
+        }
+      }
+    }
+  }
+}
+
 export async function getTransportPriceForLga(lga: string): Promise<number> {
   const cleanedLga = lga.trim();
   if (!cleanedLga || cleanedLga.length > 120) return 3500;
