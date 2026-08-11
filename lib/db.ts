@@ -10,24 +10,79 @@ const handleSupabaseError = (error: unknown) => {
   throw new Error(message || 'Database operation failed');
 };
 
+/** Postgres SQLSTATE for unique_violation. Used to detect partial-index conflicts on (user_id, order_id) where status='pending'. */
+export const PG_UNIQUE_VIOLATION = '23505';
+
+export function isDbErrorWithCode(error: unknown): error is { code: string; message?: string } {
+  return typeof error === 'object' && error !== null && 'code' in error && typeof (error as { code?: unknown }).code === 'string';
+}
+
+export function isUniqueViolation(error: unknown): boolean {
+  return isDbErrorWithCode(error) && error.code === PG_UNIQUE_VIOLATION;
+}
+
 export async function saveTransaction(
-  reference: string, 
-  email: string, 
-  amount: number, 
-  userId?: string, 
+  reference: string,
+  email: string,
+  amount: number,
+  userId?: string,
   metadata?: unknown,
-  location?: string
+  location?: string,
+  orderId?: number | string | null
 ) {
   const payload: Record<string, unknown> = { reference, email, amount, status: 'pending' };
-  
+
   // Only add these if they exist (and assuming columns exist)
   if (userId) payload.user_id = userId;
   if (metadata) payload.metadata = metadata;
   if (location) payload.location = location;
+  if (orderId !== null && orderId !== undefined && orderId !== '') {
+    const n = Number(orderId);
+    if (Number.isFinite(n)) payload.order_id = n;
+  }
 
   const { data, error } = await supabase
     .from('transactions')
     .insert([payload])
+    .select()
+    .single();
+
+  if (error) handleSupabaseError(error);
+  return data;
+}
+
+/**
+ * Patch a transaction row with new metadata fields (e.g. authorization_url, access_code)
+ * and/or other top-level columns. Used after a successful Paystack initialize call
+ * to back-fill URLs when the row was already inserted as a "claim" first.
+ */
+export async function patchTransaction(
+  reference: string,
+  patch: {
+    metadata?: Record<string, unknown> | unknown;
+    status?: string;
+    email?: string;
+    amount?: number;
+    user_id?: string;
+    location?: string;
+    order_id?: number | null;
+  }
+) {
+  const payload: Record<string, unknown> = {};
+  if ('metadata' in patch && patch.metadata !== undefined) payload.metadata = patch.metadata;
+  if ('status' in patch && patch.status !== undefined) payload.status = patch.status;
+  if ('email' in patch && patch.email !== undefined) payload.email = patch.email;
+  if ('amount' in patch && patch.amount !== undefined) payload.amount = patch.amount;
+  if ('user_id' in patch && patch.user_id !== undefined) payload.user_id = patch.user_id;
+  if ('location' in patch && patch.location !== undefined) payload.location = patch.location;
+  if ('order_id' in patch) payload.order_id = patch.order_id;
+
+  if (Object.keys(payload).length === 0) return null;
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .update(payload)
+    .eq('reference', reference)
     .select()
     .single();
 

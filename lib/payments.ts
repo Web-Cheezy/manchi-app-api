@@ -19,3 +19,27 @@ export function extractOrderIdFromMetadata(metadata: unknown): number | null {
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
 }
+
+/** Allowed absolute difference (in kobo) between Paystack charged amount and orders.total_amount. */
+export const AMOUNT_TOLERANCE_KOBO = 100;
+
+/** Convert an order total in Naira to kobo; returns null for non-finite / non-positive values. */
+export function orderAmountToKobo(totalAmountNaira: unknown): number | null {
+  const naira = Number(totalAmountNaira);
+  if (!Number.isFinite(naira) || naira <= 0) return null;
+  return Math.round(naira * 100);
+}
+
+/**
+ * Returns true when the charged amount and the order total (both in kobo)
+ * are within the configured tolerance. Returns false when either is null or the
+ * difference exceeds the tolerance.
+ */
+export function isAmountWithinTolerance(
+  chargedAmountKobo: number | null | undefined,
+  orderTotalKobo: number | null | undefined
+): boolean {
+  if (typeof chargedAmountKobo !== 'number' || !Number.isFinite(chargedAmountKobo)) return false;
+  if (typeof orderTotalKobo !== 'number' || !Number.isFinite(orderTotalKobo)) return false;
+  return Math.abs(chargedAmountKobo - orderTotalKobo) <= AMOUNT_TOLERANCE_KOBO;
+}
