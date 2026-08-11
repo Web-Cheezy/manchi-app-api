@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { requireAuthenticatedUser } from '@/lib/auth';
 import { normalizeLocation } from '@/lib/utils';
-import { notifyOrderCreated } from '@/lib/fcm';
 import {
   attachOrderItemImages,
   enrichParsedOrderLinesWithImages,
@@ -190,8 +189,6 @@ export async function POST(req: NextRequest) {
       console.error('Error creating order items:', itemsError);
       return NextResponse.json({ error: 'Order created but items failed' }, { status: 500 });
     }
-
-    notifyOrderCreated(auth.user.id, orderData.id).catch((e) => console.error('FCM order created notify:', e));
 
     return NextResponse.json({
       message: 'Order created successfully',
